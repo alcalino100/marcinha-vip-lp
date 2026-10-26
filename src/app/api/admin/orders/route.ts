@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { getOrdersAsync, resetOrdersAsync } from "@/lib/db";
 import { checkAdminAuth } from "@/lib/auth";
 import { OrderEvent, OrdersSummary } from "@/lib/types";
+import { syncWebhookSiteOrders } from "@/lib/webhooksite";
 
 export const dynamic = "force-dynamic";
 
@@ -10,7 +11,15 @@ export async function GET(req: NextRequest) {
     return NextResponse.json({ error: "Não autorizado" }, { status: 401 });
   }
 
-  const orders = await getOrdersAsync();
+  let orders = await getOrdersAsync();
+
+  // Se não houver pedidos no banco, sincroniza automaticamente do Webhook.site
+  if (orders.length === 0) {
+    try {
+      await syncWebhookSiteOrders();
+      orders = await getOrdersAsync();
+    } catch {}
+  }
 
   const url = new URL(req.url);
   const period = url.searchParams.get("period") || "all";

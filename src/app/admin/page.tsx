@@ -84,6 +84,8 @@ export default function AdminPage() {
   const [selectedPayload, setSelectedPayload] = useState<Record<string, any> | null>(null);
   const [simulating, setSimulating] = useState(false);
   const [copiedWebhook, setCopiedWebhook] = useState(false);
+  const [webhookSiteUrl, setWebhookSiteUrl] = useState("https://webhook.site/2137c6fe-7a92-43c9-bdbd-8bcb8d8d33db");
+  const [syncingWebhookSite, setSyncingWebhookSite] = useState(false);
 
   // Configuração atual da LP
   const [config, setConfig] = useState<LandingConfig | null>(null);
@@ -296,6 +298,31 @@ export default function AdminPage() {
     setCopiedWebhook(true);
     toast.success("URL do Webhook copiada para a área de transferência!");
     setTimeout(() => setCopiedWebhook(false), 2500);
+  };
+
+  const handleSyncWebhookSite = async () => {
+    setSyncingWebhookSite(true);
+    try {
+      const res = await fetch("/api/admin/orders/sync-webhooksite", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${adminToken}`,
+        },
+        body: JSON.stringify({ url: webhookSiteUrl }),
+      });
+      const data = await res.json();
+      if (res.ok && data.success) {
+        toast.success(data.message || "Sincronizado com o Webhook.site!");
+        fetchOrders();
+      } else {
+        toast.error(data.error || "Falha ao sincronizar com o Webhook.site");
+      }
+    } catch {
+      toast.error("Erro de conexão ao sincronizar com o Webhook.site");
+    } finally {
+      setSyncingWebhookSite(false);
+    }
   };
 
   const handleLogin = async (e: React.FormEvent) => {
@@ -1178,8 +1205,17 @@ export default function AdminPage() {
                   </p>
                 </div>
 
-                {/* Botões de Simulação / Teste Rápido */}
+                {/* Botões de Simulação & Sincronização */}
                 <div className="flex flex-wrap items-center gap-2">
+                  <button
+                    onClick={handleSyncWebhookSite}
+                    disabled={syncingWebhookSite}
+                    className="px-3.5 py-2 rounded-xl bg-blue-500/20 hover:bg-blue-500/30 text-blue-300 border border-blue-500/40 text-xs font-bold flex items-center gap-1.5 transition-all shadow-md cursor-pointer disabled:opacity-50"
+                  >
+                    <RefreshCw className={`w-3.5 h-3.5 ${syncingWebhookSite ? "animate-spin text-blue-400" : ""}`} />
+                    <span>{syncingWebhookSite ? "Sincronizando..." : "Sincronizar Webhook.site"}</span>
+                  </button>
+
                   <button
                     onClick={() => handleSimulateOrder("created")}
                     disabled={simulating}
@@ -1208,52 +1244,93 @@ export default function AdminPage() {
                 </div>
               </div>
 
-              {/* Campo com a URL do Webhook para Copiar */}
-              <div className="mt-6 grid grid-cols-1 lg:grid-cols-12 gap-4 items-center">
-                <div className="lg:col-span-8 space-y-2">
-                  <label className="text-[11px] font-bold uppercase tracking-wider text-zinc-400 flex items-center gap-1.5">
-                    <Code className="w-3.5 h-3.5 text-emerald-400" />
-                    URL do Webhook (Cole no Painel do FireBot)
-                  </label>
-                  <div className="flex items-center gap-2 bg-zinc-950 border border-zinc-800 rounded-2xl p-2 px-3 shadow-inner">
-                    <span className="text-[11px] font-bold uppercase px-2 py-1 rounded-md bg-emerald-500/20 text-emerald-400 font-mono">
-                      POST
-                    </span>
-                    <input
-                      type="text"
-                      readOnly
-                      value={typeof window !== "undefined" ? `${window.location.origin}/api/webhooks/firebot` : "/api/webhooks/firebot"}
-                      className="bg-transparent text-xs lg:text-sm text-zinc-200 font-mono flex-1 focus:outline-none select-all"
-                    />
-                    <button
-                      onClick={handleCopyWebhookUrl}
-                      className="px-3 py-1.5 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-bold flex items-center gap-1.5 transition-colors shadow-md cursor-pointer"
-                    >
-                      {copiedWebhook ? (
-                        <>
-                          <Check className="w-3.5 h-3.5" />
-                          <span>Copiado!</span>
-                        </>
-                      ) : (
-                        <>
-                          <Copy className="w-3.5 h-3.5" />
-                          <span>Copiar</span>
-                        </>
-                      )}
-                    </button>
+              {/* Conexão Webhook.site & URL Direta da LP */}
+              <div className="mt-6 space-y-4">
+                {/* 1. Webhook.site Vinculado */}
+                <div className="bg-zinc-950/80 border border-emerald-500/30 rounded-2xl p-4 shadow-sm">
+                  <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-3">
+                    <div className="space-y-1">
+                      <div className="flex items-center gap-2">
+                        <span className="w-2 h-2 rounded-full bg-emerald-400 animate-ping" />
+                        <label className="text-[11px] font-extrabold uppercase tracking-wider text-emerald-400 flex items-center gap-1.5">
+                          Link Webhook.site Conectado à FireBot
+                        </label>
+                        <span className="text-[10px] bg-emerald-500/20 text-emerald-300 px-2 py-0.5 rounded-full font-bold">
+                          Ativo & Sincronizando
+                        </span>
+                      </div>
+                      <p className="text-[11px] text-zinc-400">
+                        O painel lê automaticamente os eventos enviados pelo bot para o seu token do Webhook.site.
+                      </p>
+                    </div>
+
+                    <div className="flex items-center gap-2 flex-1 max-w-xl">
+                      <input
+                        type="text"
+                        value={webhookSiteUrl}
+                        onChange={(e) => setWebhookSiteUrl(e.target.value)}
+                        placeholder="https://webhook.site/seu-token"
+                        className="bg-zinc-900 border border-zinc-800 rounded-xl px-3 py-1.5 text-xs text-zinc-200 font-mono flex-1 focus:outline-none focus:border-emerald-500"
+                      />
+                      <button
+                        onClick={handleSyncWebhookSite}
+                        disabled={syncingWebhookSite}
+                        className="px-3.5 py-1.5 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-bold flex items-center gap-1.5 transition-colors shadow-md cursor-pointer disabled:opacity-50 whitespace-nowrap"
+                      >
+                        <RefreshCw className={`w-3.5 h-3.5 ${syncingWebhookSite ? "animate-spin text-white" : ""}`} />
+                        <span>Sincronizar Agora</span>
+                      </button>
+                    </div>
                   </div>
                 </div>
 
-                <div className="lg:col-span-4 bg-zinc-950/70 border border-zinc-800/80 rounded-2xl p-3.5 text-xs text-zinc-400 space-y-1.5">
-                  <div className="font-bold text-zinc-300 flex items-center gap-1.5">
-                    <Sparkles className="w-3.5 h-3.5 text-emerald-400" />
-                    Eventos Automáticos
+                {/* 2. URL Direta Alternativa */}
+                <div className="grid grid-cols-1 lg:grid-cols-12 gap-4 items-center">
+                  <div className="lg:col-span-8 space-y-1.5">
+                    <label className="text-[11px] font-bold uppercase tracking-wider text-zinc-400 flex items-center gap-1.5">
+                      <Code className="w-3.5 h-3.5 text-blue-400" />
+                      URL Direta do Webhook (Alternativa sem intermediário)
+                    </label>
+                    <div className="flex items-center gap-2 bg-zinc-950 border border-zinc-800 rounded-2xl p-2 px-3 shadow-inner">
+                      <span className="text-[11px] font-bold uppercase px-2 py-1 rounded-md bg-blue-500/20 text-blue-400 font-mono">
+                        POST
+                      </span>
+                      <input
+                        type="text"
+                        readOnly
+                        value={typeof window !== "undefined" ? `${window.location.origin}/api/webhooks/firebot` : "/api/webhooks/firebot"}
+                        className="bg-transparent text-xs lg:text-sm text-zinc-200 font-mono flex-1 focus:outline-none select-all"
+                      />
+                      <button
+                        onClick={handleCopyWebhookUrl}
+                        className="px-3 py-1.5 rounded-xl bg-zinc-800 hover:bg-zinc-700 text-zinc-200 text-xs font-bold flex items-center gap-1.5 transition-colors shadow-md cursor-pointer"
+                      >
+                        {copiedWebhook ? (
+                          <>
+                            <Check className="w-3.5 h-3.5 text-emerald-400" />
+                            <span>Copiado!</span>
+                          </>
+                        ) : (
+                          <>
+                            <Copy className="w-3.5 h-3.5" />
+                            <span>Copiar</span>
+                          </>
+                        )}
+                      </button>
+                    </div>
                   </div>
-                  <ul className="text-[11px] space-y-1 list-disc list-inside text-zinc-400">
-                    <li><strong className="text-zinc-200">PIX Gerado:</strong> Registra intenção de compra e UTM</li>
-                    <li><strong className="text-zinc-200">PIX Pago:</strong> Confirma receita em R$ e converte o lead</li>
-                    <li><strong className="text-zinc-200">Compatível:</strong> FireBot, PushinPay, Kiwify e Bots Telegram</li>
-                  </ul>
+
+                  <div className="lg:col-span-4 bg-zinc-950/70 border border-zinc-800/80 rounded-2xl p-3.5 text-xs text-zinc-400 space-y-1.5">
+                    <div className="font-bold text-zinc-300 flex items-center gap-1.5">
+                      <Sparkles className="w-3.5 h-3.5 text-emerald-400" />
+                      Eventos Detectados da FireBot
+                    </div>
+                    <ul className="text-[11px] space-y-1 list-disc list-inside text-zinc-400">
+                      <li><strong className="text-zinc-200">venda.pendente:</strong> PIX Gerado no bot</li>
+                      <li><strong className="text-zinc-200">venda.paga:</strong> PIX Pago e Aprovado</li>
+                      <li><strong className="text-zinc-200">saque.aprovado:</strong> Retirada de comissões</li>
+                    </ul>
+                  </div>
                 </div>
               </div>
             </div>
