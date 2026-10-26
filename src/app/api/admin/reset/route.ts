@@ -3,7 +3,7 @@ import { resetStatsAsync } from "@/lib/db";
 import { checkAdminAuth } from "@/lib/auth";
 
 export async function POST(req: NextRequest) {
-  if (!checkAdminAuth(req)) {
+  if (!(await checkAdminAuth(req))) {
     return NextResponse.json({ error: "Não autorizado" }, { status: 401 });
   }
 

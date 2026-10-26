@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useTransition } from "react";
+import { useState, useEffect, useRef } from "react";
 import Image from "next/image";
 import {
   Users,
@@ -26,6 +26,13 @@ import {
   Send,
   Eye,
   Database,
+  Link as LinkIcon,
+  Copy,
+  DollarSign,
+  Activity,
+  Layers,
+  ChevronRight,
+  Search,
 } from "lucide-react";
 import { toast } from "sonner";
 import type { LandingConfig, VisitEvent } from "@/lib/types";
@@ -54,7 +61,7 @@ export default function AdminPage() {
   const [isAuthenticated, setIsAuthenticated] = useState(false);
   const [passwordInput, setPasswordInput] = useState("");
   const [adminToken, setAdminToken] = useState<string>("");
-  const [activeTab, setActiveTab] = useState<"stats" | "editor" | "settings">("stats");
+  const [activeTab, setActiveTab] = useState<"stats" | "feed" | "generator" | "editor" | "settings">("stats");
   const [period, setPeriod] = useState<"today" | "7d" | "30d" | "all">("today");
 
   // Configuração atual da LP
@@ -64,7 +71,15 @@ export default function AdminPage() {
   // Estatísticas
   const [stats, setStats] = useState<StatsData | null>(null);
   const [loadingStats, setLoadingStats] = useState(false);
+
+  // Filtros do Feed de Visitantes
   const [searchLog, setSearchLog] = useState("");
+  const [statusFilter, setStatusFilter] = useState<"all" | "clicked" | "viewed">("all");
+  const [deviceFilter, setDeviceFilter] = useState<string>("all");
+
+  // Auto-refresh (Tempo Real)
+  const [autoRefreshInterval, setAutoRefreshInterval] = useState<number>(15); // 15 segundos padrão
+  const [lastRefreshedAt, setLastRefreshedAt] = useState<Date>(new Date());
 
   // Upload
   const [uploading, setUploading] = useState(false);
@@ -78,16 +93,34 @@ export default function AdminPage() {
     error?: string;
   } | null>(null);
 
-  // Checa token salvo
+  // Calculadora de ROI Estimado
+  const [ticketPrice, setTicketPrice] = useState<number>(29.9);
+  const [conversionToSaleRate, setConversionToSaleRate] = useState<number>(5.0);
+
+  // Gerador de Links UTM
+  const [generatorChannel, setGeneratorChannel] = useState("tiktok_ads");
+  const [generatorCampaign, setGeneratorCampaign] = useState("campanha_vip_01");
+  const [generatorCreative, setGeneratorCreative] = useState("criativo_01");
+  const [generatedUrl, setGeneratedUrl] = useState("");
+
+  // 1. Checa autenticação no localStorage e Cookies
   useEffect(() => {
     const savedToken = localStorage.getItem("marcinha_admin_token");
     if (savedToken) {
       setAdminToken(savedToken);
       setIsAuthenticated(true);
+    } else {
+      // Tenta recuperar do cookie
+      const match = document.cookie.match(new RegExp("(^| )marcinha_admin_session=([^;]+)"));
+      if (match && match[2]) {
+        setAdminToken(match[2]);
+        localStorage.setItem("marcinha_admin_token", match[2]);
+        setIsAuthenticated(true);
+      }
     }
   }, []);
 
-  // Carrega configurações e estatísticas quando autenticado
+  // 2. Carrega dados quando autenticado
   useEffect(() => {
     if (!isAuthenticated || !adminToken) return;
 
@@ -95,6 +128,33 @@ export default function AdminPage() {
     fetchStats();
     fetchSupabaseStatus();
   }, [isAuthenticated, adminToken, period]);
+
+  // 3. Auto-Refresh em Tempo Real
+  useEffect(() => {
+    if (!isAuthenticated || !adminToken || autoRefreshInterval <= 0) return;
+
+    const timer = setInterval(() => {
+      fetchStats(true);
+      setLastRefreshedAt(new Date());
+    }, autoRefreshInterval * 1000);
+
+    return () => clearInterval(timer);
+  }, [isAuthenticated, adminToken, autoRefreshInterval, period]);
+
+  // 4. Atualiza URL gerada do gerador de UTMs
+  useEffect(() => {
+    if (typeof window !== "undefined") {
+      const baseUrl = window.location.origin;
+      const params = new URLSearchParams();
+      if (generatorChannel) params.set("utm_source", generatorChannel);
+      if (generatorChannel.includes("ads")) params.set("utm_medium", "cpc");
+      else params.set("utm_medium", "social");
+      if (generatorCampaign) params.set("utm_campaign", generatorCampaign);
+      if (generatorCreative) params.set("utm_content", generatorCreative);
+
+      setGeneratedUrl(`${baseUrl}/?${params.toString()}`);
+    }
+  }, [generatorChannel, generatorCampaign, generatorCreative]);
 
   const fetchSupabaseStatus = async () => {
     try {
@@ -116,16 +176,14 @@ export default function AdminPage() {
       if (res.ok) {
         const data = await res.json();
         setConfig(data);
-      } else if (res.status === 401) {
-        handleLogout();
       }
     } catch (err) {
-      toast.error("Falha ao carregar configurações");
+      console.error("Erro ao carregar configurações:", err);
     }
   };
 
-  const fetchStats = async () => {
-    setLoadingStats(true);
+  const fetchStats = async (isSilent = false) => {
+    if (!isSilent) setLoadingStats(true);
     try {
       const res = await fetch(`/api/admin/stats?period=${period}`, {
         headers: { Authorization: `Bearer ${adminToken}` },
@@ -135,9 +193,9 @@ export default function AdminPage() {
         setStats(data);
       }
     } catch (err) {
-      toast.error("Falha ao carregar estatísticas");
+      if (!isSilent) toast.error("Falha ao atualizar estatísticas");
     } finally {
-      setLoadingStats(false);
+      if (!isSilent) setLoadingStats(false);
     }
   };
 
@@ -154,6 +212,8 @@ export default function AdminPage() {
       if (res.ok && data.success) {
         setAdminToken(data.token);
         localStorage.setItem("marcinha_admin_token", data.token);
+        // Grava cookie para backup de sessão
+        document.cookie = `marcinha_admin_session=${data.token}; path=/; max-age=2592000; SameSite=Lax`;
         setIsAuthenticated(true);
         toast.success("Autenticado com sucesso!");
       } else {
@@ -166,8 +226,10 @@ export default function AdminPage() {
 
   const handleLogout = () => {
     localStorage.removeItem("marcinha_admin_token");
+    document.cookie = "marcinha_admin_session=; path=/; max-age=0";
     setAdminToken("");
     setIsAuthenticated(false);
+    toast.info("Você saiu do painel.");
   };
 
   const handleSaveConfig = async () => {
@@ -184,12 +246,13 @@ export default function AdminPage() {
       });
 
       if (res.ok) {
-        toast.success("Configurações atualizadas com sucesso!");
+        toast.success("Configurações salvas e aplicadas!");
+        fetchSupabaseStatus();
       } else {
         toast.error("Falha ao salvar configurações");
       }
     } catch {
-      toast.error("Erro ao conectar com o servidor");
+      toast.error("Erro de conexão ao salvar");
     } finally {
       setSaving(false);
     }
@@ -213,7 +276,11 @@ export default function AdminPage() {
 
       if (res.ok && data.url) {
         setConfig((prev) => (prev ? { ...prev, photoUrl: data.url } : null));
-        toast.success("Nova foto da modelo enviada com sucesso!");
+        toast.success(
+          data.storage === "supabase"
+            ? "Foto enviada direto para o Supabase Storage com sucesso!"
+            : "Foto enviada com sucesso!"
+        );
       } else {
         toast.error(data.error || "Erro no upload");
       }
@@ -225,7 +292,9 @@ export default function AdminPage() {
   };
 
   const handleResetStats = async () => {
-    if (!confirm("Tem certeza que deseja zerar todas as estatísticas de visitas e cliques?")) return;
+    if (!confirm("Tem certeza que deseja zerar TODAS as estatísticas de visitas e cliques? Essa ação é irreversível.")) {
+      return;
+    }
 
     try {
       const res = await fetch("/api/admin/reset", {
@@ -233,12 +302,18 @@ export default function AdminPage() {
         headers: { Authorization: `Bearer ${adminToken}` },
       });
       if (res.ok) {
-        toast.success("Estatísticas reinicializadas!");
+        toast.success("Estatísticas limpas com sucesso!");
         fetchStats();
+        fetchSupabaseStatus();
       }
     } catch {
       toast.error("Erro ao zerar dados");
     }
+  };
+
+  const copyToClipboard = (text: string, label: string) => {
+    navigator.clipboard.writeText(text);
+    toast.success(`${label} copiado para a área de transferência!`);
   };
 
   const exportCSV = () => {
@@ -247,52 +322,81 @@ export default function AdminPage() {
       return;
     }
 
-    const headers = ["Data/Hora", "IP", "Dispositivo", "SO", "Navegador", "Cidade", "UF", "UTM Source", "UTM Campaign", "Clicou"];
+    const headers = [
+      "Data/Hora",
+      "IP",
+      "Dispositivo",
+      "SO",
+      "Navegador",
+      "In-App",
+      "Cidade",
+      "UF",
+      "País",
+      "UTM Source",
+      "UTM Medium",
+      "UTM Campaign",
+      "UTM Content",
+      "Clicou Telegram",
+      "Hora Clique",
+      "Referrer",
+    ];
+
     const rows = stats.recentVisits.map((v) => [
       new Date(v.timestamp).toLocaleString("pt-BR"),
       v.ip,
       v.device,
       v.os,
       v.browser,
+      v.isInAppBrowser ? `Sim (${v.inAppName || v.browser})` : "Não",
       v.city,
       v.region,
+      v.country,
       v.utm_source,
+      v.utm_medium,
       v.utm_campaign,
+      v.utm_content || "",
       v.clicked ? "SIM" : "NAO",
+      v.clickedAt ? new Date(v.clickedAt).toLocaleString("pt-BR") : "",
+      v.referrer || "",
     ]);
 
     const csvContent =
-      "data:text/csv;charset=utf-8," +
+      "data:text/csv;charset=utf-8,\uFEFF" +
       [headers.join(","), ...rows.map((e) => e.map((val) => `"${val}"`).join(","))].join("\n");
 
     const encodedUri = encodeURI(csvContent);
     const link = document.createElement("a");
     link.setAttribute("href", encodedUri);
-    link.setAttribute("download", `visitas_marcinha_${new Date().toISOString().split("T")[0]}.csv`);
+    link.setAttribute("download", `marcinha_leads_${new Date().toISOString().split("T")[0]}.csv`);
     document.body.appendChild(link);
     link.click();
     document.body.removeChild(link);
-    toast.success("Planilha CSV baixada!");
+    toast.success("Relatório CSV exportado!");
   };
 
-  // Cores pré-definidas para o botão
+  // Cores pré-definidas com gradientes
   const colorPresets = [
-    { name: "Telegram Azul", bg: "#229ED9", text: "#ffffff" },
-    { name: "Rosa Sexy", bg: "#ec4899", text: "#ffffff" },
+    { name: "Telegram Oficial", bg: "#229ED9", text: "#ffffff" },
+    { name: "Rosa Sexy Neon", bg: "#ec4899", text: "#ffffff" },
     { name: "Vermelho Hot", bg: "#f43f5e", text: "#ffffff" },
-    { name: "Verde Neon", bg: "#10b981", text: "#ffffff" },
+    { name: "Verde Emerald", bg: "#10b981", text: "#ffffff" },
     { name: "Dourado VIP", bg: "#f59e0b", text: "#000000" },
     { name: "Roxo Cyber", bg: "#8b5cf6", text: "#ffffff" },
-    { name: "Preto Luxo", bg: "#18181b", text: "#ffffff" },
+    { name: "Dark Luxury", bg: "#18181b", text: "#ffffff" },
   ];
 
-  // Filtra logs de visitas pelo termo de busca
-  const filteredLogs = stats?.recentVisits.filter((v) => {
+  // Filtra logs de visitas com busca e tags
+  const filteredLogs = stats?.recentVisits?.filter((v) => {
+    if (statusFilter === "clicked" && !v.clicked) return false;
+    if (statusFilter === "viewed" && v.clicked) return false;
+    if (deviceFilter !== "all" && v.device !== deviceFilter) return false;
+
     if (!searchLog) return true;
     const term = searchLog.toLowerCase();
     return (
       v.utm_source.toLowerCase().includes(term) ||
       v.utm_campaign.toLowerCase().includes(term) ||
+      (v.utm_content && v.utm_content.toLowerCase().includes(term)) ||
       v.city.toLowerCase().includes(term) ||
       v.device.toLowerCase().includes(term) ||
       v.browser.toLowerCase().includes(term) ||
@@ -300,17 +404,24 @@ export default function AdminPage() {
     );
   });
 
-  // Tela de Login
+  // Estimativa de faturamento
+  const totalClicksCount = stats?.totalClicks || 0;
+  const estimatedSales = Math.round(totalClicksCount * (conversionToSaleRate / 100));
+  const estimatedRevenue = (estimatedSales * ticketPrice).toFixed(2);
+
+  // TELA DE LOGIN
   if (!isAuthenticated) {
     return (
       <div className="min-h-screen bg-zinc-950 flex items-center justify-center p-4">
-        <div className="w-full max-w-md bg-zinc-900 border border-zinc-800 rounded-2xl p-8 shadow-2xl">
+        <div className="w-full max-w-md bg-zinc-900 border border-zinc-800 rounded-3xl p-8 shadow-2xl relative overflow-hidden">
+          <div className="absolute top-0 inset-x-0 h-1 bg-gradient-to-r from-blue-500 via-indigo-500 to-purple-500" />
+
           <div className="text-center mb-6">
-            <div className="w-14 h-14 bg-blue-500/10 border border-blue-500/20 text-blue-400 rounded-2xl flex items-center justify-center mx-auto mb-4 shadow-inner">
-              <Lock className="w-7 h-7" />
+            <div className="w-16 h-16 bg-blue-500/10 border border-blue-500/20 text-blue-400 rounded-2xl flex items-center justify-center mx-auto mb-4 shadow-inner">
+              <Lock className="w-8 h-8" />
             </div>
-            <h1 className="text-2xl font-bold text-white tracking-tight">Painel Admin</h1>
-            <p className="text-sm text-zinc-400 mt-1">Marcinha VIP • Controle & Analytics</p>
+            <h1 className="text-2xl font-extrabold text-white tracking-tight">Painel Administrativo</h1>
+            <p className="text-xs text-zinc-400 mt-1">Marcinha VIP • Analytics & Gestão de Tráfego</p>
           </div>
 
           <form onSubmit={handleLogin} className="space-y-4">
@@ -322,18 +433,18 @@ export default function AdminPage() {
                 type="password"
                 value={passwordInput}
                 onChange={(e) => setPasswordInput(e.target.value)}
-                placeholder="Digite a senha do painel..."
+                placeholder="Digite a senha mestre..."
                 required
-                className="w-full px-4 py-3 bg-zinc-950 border border-zinc-800 rounded-xl text-white placeholder-zinc-500 focus:outline-none focus:ring-2 focus:ring-blue-500 transition-all"
+                className="w-full px-4 py-3 bg-zinc-950 border border-zinc-800 rounded-xl text-white placeholder-zinc-500 focus:outline-none focus:ring-2 focus:ring-blue-500 transition-all font-mono"
               />
               <p className="text-[11px] text-zinc-500 mt-2">
-                Dica padrão inicial: <code className="text-blue-400">marcinha2026</code>
+                Sua sessão ficará salva neste navegador por 30 dias.
               </p>
             </div>
 
             <button
               type="submit"
-              className="w-full py-3.5 bg-blue-600 hover:bg-blue-500 text-white font-semibold rounded-xl transition-all shadow-lg shadow-blue-600/30 active:scale-[0.98]"
+              className="w-full py-3.5 bg-blue-600 hover:bg-blue-500 text-white font-semibold rounded-xl transition-all shadow-lg shadow-blue-600/30 active:scale-[0.98] cursor-pointer"
             >
               Entrar no Painel
             </button>
@@ -344,58 +455,82 @@ export default function AdminPage() {
   }
 
   return (
-    <div className="min-h-screen bg-zinc-950 text-zinc-100 flex flex-col">
+    <div className="min-h-screen bg-zinc-950 text-zinc-100 flex flex-col font-sans">
       {/* Top Header */}
-      <header className="sticky top-0 z-40 bg-zinc-900/90 backdrop-blur-md border-b border-zinc-800 px-4 lg:px-8 py-3.5 flex items-center justify-between">
+      <header className="sticky top-0 z-40 bg-zinc-900/95 backdrop-blur-md border-b border-zinc-800 px-4 lg:px-8 py-3 flex items-center justify-between">
         <div className="flex items-center gap-3">
-          <div className="w-9 h-9 rounded-xl bg-gradient-to-tr from-blue-600 to-indigo-500 flex items-center justify-center text-white font-bold shadow-md">
+          <div className="w-10 h-10 rounded-2xl bg-gradient-to-tr from-blue-600 to-indigo-500 flex items-center justify-center text-white font-extrabold shadow-lg shadow-blue-500/20">
             M
           </div>
           <div>
-            <h1 className="text-base font-bold text-white flex items-center gap-2">
-              Painel Marcinha VIP
-              <span className="text-[10px] font-medium px-2 py-0.5 rounded-full bg-emerald-500/20 text-emerald-400 border border-emerald-500/30">
-                Online
-              </span>
-            </h1>
-            <p className="text-xs text-zinc-400">Página de conversão mobile & analytics</p>
+            <div className="flex items-center gap-2">
+              <h1 className="text-base font-extrabold text-white tracking-tight">Marcinha VIP</h1>
+              {supabaseStatus?.connected ? (
+                <span className="text-[10px] font-semibold px-2 py-0.5 rounded-full bg-emerald-500/20 text-emerald-400 border border-emerald-500/30 flex items-center gap-1">
+                  <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-ping" />
+                  Supabase Ativo
+                </span>
+              ) : (
+                <span className="text-[10px] font-semibold px-2 py-0.5 rounded-full bg-amber-500/20 text-amber-400 border border-amber-500/30">
+                  Modo Local
+                </span>
+              )}
+            </div>
+            <p className="text-[11px] text-zinc-400">Controle de Conversão & Mídia Paga</p>
           </div>
         </div>
 
+        {/* Controles de Atualização & Ações */}
         <div className="flex items-center gap-2">
+          {/* Indicador de Auto-refresh */}
+          <div className="hidden sm:flex items-center gap-1.5 bg-zinc-950 px-3 py-1.5 rounded-xl border border-zinc-800 text-xs">
+            <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />
+            <span className="text-zinc-400 text-[11px]">Tempo Real:</span>
+            <select
+              value={autoRefreshInterval}
+              onChange={(e) => setAutoRefreshInterval(Number(e.target.value))}
+              className="bg-transparent text-white font-semibold text-xs focus:outline-none cursor-pointer"
+            >
+              <option value={10} className="bg-zinc-900">10s</option>
+              <option value={15} className="bg-zinc-900">15s</option>
+              <option value={30} className="bg-zinc-900">30s</option>
+              <option value={0} className="bg-zinc-900">Desligado</option>
+            </select>
+          </div>
+
           <a
             href="/"
             target="_blank"
             rel="noopener noreferrer"
-            className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-zinc-800 hover:bg-zinc-700 text-xs font-medium text-zinc-200 border border-zinc-700 transition-colors"
+            className="flex items-center gap-1.5 px-3 py-2 rounded-xl bg-zinc-800 hover:bg-zinc-700 text-xs font-semibold text-zinc-200 border border-zinc-700 transition-colors shadow-sm"
           >
             <span>Ver Página</span>
-            <ExternalLink className="w-3.5 h-3.5" />
+            <ExternalLink className="w-3.5 h-3.5 text-zinc-400" />
           </a>
 
           <button
-            onClick={fetchStats}
-            title="Atualizar dados"
-            className="p-2 rounded-lg bg-zinc-800 hover:bg-zinc-700 text-zinc-400 hover:text-white border border-zinc-700 transition-colors"
+            onClick={() => fetchStats()}
+            title="Atualizar dados agora"
+            className="p-2 rounded-xl bg-zinc-800 hover:bg-zinc-700 text-zinc-300 border border-zinc-700 transition-colors cursor-pointer"
           >
-            <RefreshCw className={`w-4 h-4 ${loadingStats ? "animate-spin" : ""}`} />
+            <RefreshCw className={`w-4 h-4 ${loadingStats ? "animate-spin text-blue-400" : ""}`} />
           </button>
 
           <button
             onClick={handleLogout}
             title="Sair do painel"
-            className="p-2 rounded-lg bg-red-500/10 hover:bg-red-500/20 text-red-400 border border-red-500/20 transition-colors"
+            className="p-2 rounded-xl bg-red-500/10 hover:bg-red-500/20 text-red-400 border border-red-500/20 transition-colors cursor-pointer"
           >
             <LogOut className="w-4 h-4" />
           </button>
         </div>
       </header>
 
-      {/* Tabs Navigation */}
-      <nav className="bg-zinc-900/50 border-b border-zinc-800 px-4 lg:px-8 flex gap-6">
+      {/* Navegação por Abas */}
+      <nav className="bg-zinc-900/60 border-b border-zinc-800 px-4 lg:px-8 flex gap-6 overflow-x-auto">
         <button
           onClick={() => setActiveTab("stats")}
-          className={`py-3 text-sm font-semibold flex items-center gap-2 border-b-2 transition-all ${
+          className={`py-3.5 text-xs lg:text-sm font-bold flex items-center gap-2 border-b-2 transition-all whitespace-nowrap cursor-pointer ${
             activeTab === "stats"
               ? "border-blue-500 text-blue-400"
               : "border-transparent text-zinc-400 hover:text-zinc-200"
@@ -406,8 +541,37 @@ export default function AdminPage() {
         </button>
 
         <button
+          onClick={() => setActiveTab("feed")}
+          className={`py-3.5 text-xs lg:text-sm font-bold flex items-center gap-2 border-b-2 transition-all whitespace-nowrap cursor-pointer ${
+            activeTab === "feed"
+              ? "border-blue-500 text-blue-400"
+              : "border-transparent text-zinc-400 hover:text-zinc-200"
+          }`}
+        >
+          <Activity className="w-4 h-4" />
+          Feed de Visitantes & Clicks
+          {stats?.recentVisits?.length ? (
+            <span className="text-[10px] px-1.5 py-0.2 bg-blue-500/20 text-blue-400 rounded-full font-mono">
+              {stats.recentVisits.length}
+            </span>
+          ) : null}
+        </button>
+
+        <button
+          onClick={() => setActiveTab("generator")}
+          className={`py-3.5 text-xs lg:text-sm font-bold flex items-center gap-2 border-b-2 transition-all whitespace-nowrap cursor-pointer ${
+            activeTab === "generator"
+              ? "border-blue-500 text-blue-400"
+              : "border-transparent text-zinc-400 hover:text-zinc-200"
+          }`}
+        >
+          <LinkIcon className="w-4 h-4" />
+          Gerador de Links UTM
+        </button>
+
+        <button
           onClick={() => setActiveTab("editor")}
-          className={`py-3 text-sm font-semibold flex items-center gap-2 border-b-2 transition-all ${
+          className={`py-3.5 text-xs lg:text-sm font-bold flex items-center gap-2 border-b-2 transition-all whitespace-nowrap cursor-pointer ${
             activeTab === "editor"
               ? "border-blue-500 text-blue-400"
               : "border-transparent text-zinc-400 hover:text-zinc-200"
@@ -419,34 +583,34 @@ export default function AdminPage() {
 
         <button
           onClick={() => setActiveTab("settings")}
-          className={`py-3 text-sm font-semibold flex items-center gap-2 border-b-2 transition-all ${
+          className={`py-3.5 text-xs lg:text-sm font-bold flex items-center gap-2 border-b-2 transition-all whitespace-nowrap cursor-pointer ${
             activeTab === "settings"
               ? "border-blue-500 text-blue-400"
               : "border-transparent text-zinc-400 hover:text-zinc-200"
           }`}
         >
           <Sliders className="w-4 h-4" />
-          Pixels & Configurações
+          Pixels & Supabase
         </button>
       </nav>
 
-      {/* Content Area */}
+      {/* Conteúdo Principal */}
       <main className="flex-1 p-4 lg:p-8 max-w-7xl w-full mx-auto">
         {/* ================= ABA 1: MÉTRICAS & TRÁFEGO ================= */}
         {activeTab === "stats" && (
           <div className="space-y-6">
-            {/* Filtro de Período */}
-            <div className="flex flex-wrap items-center justify-between gap-4 bg-zinc-900 border border-zinc-800 p-3 rounded-xl">
+            {/* Barra de Filtro de Período & Ações */}
+            <div className="flex flex-wrap items-center justify-between gap-4 bg-zinc-900 border border-zinc-800 p-3 rounded-2xl shadow-sm">
               <div className="flex items-center gap-2">
                 <Clock className="w-4 h-4 text-zinc-400" />
-                <span className="text-xs font-semibold text-zinc-300">Período:</span>
-                <div className="flex gap-1 bg-zinc-950 p-1 rounded-lg border border-zinc-800">
+                <span className="text-xs font-bold text-zinc-300">Período:</span>
+                <div className="flex gap-1 bg-zinc-950 p-1 rounded-xl border border-zinc-800">
                   {(["today", "7d", "30d", "all"] as const).map((p) => (
                     <button
                       key={p}
                       onClick={() => setPeriod(p)}
-                      className={`px-3 py-1 rounded text-xs font-medium transition-all ${
-                        period === p ? "bg-blue-600 text-white shadow" : "text-zinc-400 hover:text-white"
+                      className={`px-3 py-1 rounded-lg text-xs font-semibold transition-all cursor-pointer ${
+                        period === p ? "bg-blue-600 text-white shadow-md shadow-blue-600/30" : "text-zinc-400 hover:text-white"
                       }`}
                     >
                       {p === "today" ? "Hoje" : p === "7d" ? "7 Dias" : p === "30d" ? "30 Dias" : "Todos"}
@@ -455,10 +619,11 @@ export default function AdminPage() {
                 </div>
               </div>
 
-              <div className="flex items-center gap-2">
+              <div className="flex items-center gap-3 text-xs text-zinc-400">
+                <span>Última atualização: {lastRefreshedAt.toLocaleTimeString("pt-BR")}</span>
                 <button
                   onClick={exportCSV}
-                  className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-zinc-800 hover:bg-zinc-700 text-xs font-medium text-zinc-200 border border-zinc-700 transition-colors"
+                  className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-zinc-800 hover:bg-zinc-700 text-xs font-semibold text-zinc-200 border border-zinc-700 transition-colors cursor-pointer"
                 >
                   <Download className="w-3.5 h-3.5 text-zinc-400" />
                   <span>Exportar CSV</span>
@@ -466,14 +631,14 @@ export default function AdminPage() {
               </div>
             </div>
 
-            {/* Cards de Métricas Principais */}
+            {/* 4 Cards de Métricas Principais */}
             <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
-              <div className="bg-zinc-900 border border-zinc-800 rounded-2xl p-5 shadow-sm">
+              <div className="bg-zinc-900 border border-zinc-800 rounded-3xl p-5 shadow-sm relative overflow-hidden">
                 <div className="flex items-center justify-between text-zinc-400 mb-2">
-                  <span className="text-xs font-medium uppercase tracking-wider">Total de Acessos</span>
+                  <span className="text-[11px] font-bold uppercase tracking-wider">Acessos Totais</span>
                   <Users className="w-4 h-4 text-blue-400" />
                 </div>
-                <div className="text-2xl lg:text-3xl font-extrabold text-white">
+                <div className="text-2xl lg:text-3xl font-black text-white">
                   {stats?.totalVisits ?? 0}
                 </div>
                 <p className="text-xs text-zinc-500 mt-1">
@@ -481,54 +646,110 @@ export default function AdminPage() {
                 </p>
               </div>
 
-              <div className="bg-zinc-900 border border-zinc-800 rounded-2xl p-5 shadow-sm">
+              <div className="bg-zinc-900 border border-zinc-800 rounded-3xl p-5 shadow-sm relative overflow-hidden">
                 <div className="flex items-center justify-between text-zinc-400 mb-2">
-                  <span className="text-xs font-medium uppercase tracking-wider">Cliques no Botão</span>
+                  <span className="text-[11px] font-bold uppercase tracking-wider">Cliques no Botão</span>
                   <MousePointerClick className="w-4 h-4 text-emerald-400" />
                 </div>
-                <div className="text-2xl lg:text-3xl font-extrabold text-emerald-400">
+                <div className="text-2xl lg:text-3xl font-black text-emerald-400">
                   {stats?.totalClicks ?? 0}
                 </div>
-                <p className="text-xs text-zinc-500 mt-1">Redirecionados ao Telegram</p>
+                <p className="text-xs text-zinc-500 mt-1">Redirecionados para o Telegram</p>
               </div>
 
-              <div className="bg-zinc-900 border border-zinc-800 rounded-2xl p-5 shadow-sm">
+              <div className="bg-zinc-900 border border-zinc-800 rounded-3xl p-5 shadow-sm relative overflow-hidden">
                 <div className="flex items-center justify-between text-zinc-400 mb-2">
-                  <span className="text-xs font-medium uppercase tracking-wider">Taxa de Conversão</span>
+                  <span className="text-[11px] font-bold uppercase tracking-wider">Taxa de Conversão</span>
                   <TrendingUp className="w-4 h-4 text-purple-400" />
                 </div>
-                <div className="text-2xl lg:text-3xl font-extrabold text-purple-400">
+                <div className="text-2xl lg:text-3xl font-black text-purple-400">
                   {stats?.conversionRate ?? 0}%
                 </div>
-                <p className="text-xs text-zinc-500 mt-1">Cliques / Visitantes</p>
+                <p className="text-xs text-zinc-500 mt-1">Taxa de Cliques / Visitas (CTR)</p>
               </div>
 
-              <div className="bg-zinc-900 border border-zinc-800 rounded-2xl p-5 shadow-sm">
+              <div className="bg-zinc-900 border border-zinc-800 rounded-3xl p-5 shadow-sm relative overflow-hidden">
                 <div className="flex items-center justify-between text-zinc-400 mb-2">
-                  <span className="text-xs font-medium uppercase tracking-wider">Foco Mobile</span>
+                  <span className="text-[11px] font-bold uppercase tracking-wider">Tráfego Mobile</span>
                   <Smartphone className="w-4 h-4 text-pink-400" />
                 </div>
-                <div className="text-2xl lg:text-3xl font-extrabold text-white">
+                <div className="text-2xl lg:text-3xl font-black text-white">
                   {stats?.devices?.["Mobile"]
                     ? Math.round(((stats.devices["Mobile"] || 0) / (stats.totalVisits || 1)) * 100)
                     : 100}
                   %
                 </div>
-                <p className="text-xs text-zinc-500 mt-1">Usuários de Smartphones</p>
+                <p className="text-xs text-zinc-500 mt-1">Usuários em Smartphones</p>
               </div>
             </div>
 
-            {/* Grids de Tráfego: UTMs e Dispositivos */}
+            {/* Calculadora de Potencial de Receita VIP */}
+            <div className="bg-gradient-to-r from-blue-950/30 via-indigo-950/30 to-purple-950/30 border border-blue-900/40 rounded-3xl p-6">
+              <div className="flex flex-wrap items-center justify-between gap-4 mb-4">
+                <div>
+                  <h3 className="text-sm font-bold text-white flex items-center gap-2">
+                    <DollarSign className="w-4 h-4 text-emerald-400" />
+                    Projeção de Faturamento Estimado (Canal VIP)
+                  </h3>
+                  <p className="text-xs text-zinc-400 mt-0.5">
+                    Estime o faturamento gerado com base nos leads redirecionados para o Telegram
+                  </p>
+                </div>
+
+                <div className="flex items-center gap-3">
+                  <div className="flex items-center gap-1.5 text-xs text-zinc-300">
+                    <span>Ticket VIP (R$):</span>
+                    <input
+                      type="number"
+                      step="0.10"
+                      value={ticketPrice}
+                      onChange={(e) => setTicketPrice(Number(e.target.value))}
+                      className="w-20 px-2 py-1 bg-zinc-950 border border-zinc-800 rounded-lg text-white font-mono text-xs text-right"
+                    />
+                  </div>
+
+                  <div className="flex items-center gap-1.5 text-xs text-zinc-300">
+                    <span>Conversão no Bot (%):</span>
+                    <input
+                      type="number"
+                      step="0.5"
+                      value={conversionToSaleRate}
+                      onChange={(e) => setConversionToSaleRate(Number(e.target.value))}
+                      className="w-16 px-2 py-1 bg-zinc-950 border border-zinc-800 rounded-lg text-white font-mono text-xs text-right"
+                    />
+                  </div>
+                </div>
+              </div>
+
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 pt-2">
+                <div className="bg-zinc-950/60 p-4 rounded-2xl border border-zinc-800/80">
+                  <span className="text-[11px] text-zinc-400">Total de Leads Enviados:</span>
+                  <div className="text-xl font-extrabold text-blue-400 mt-1">{totalClicksCount} cliques</div>
+                </div>
+
+                <div className="bg-zinc-950/60 p-4 rounded-2xl border border-zinc-800/80">
+                  <span className="text-[11px] text-zinc-400">Vendas Estimadas ({conversionToSaleRate}%):</span>
+                  <div className="text-xl font-extrabold text-purple-400 mt-1">{estimatedSales} assinantes</div>
+                </div>
+
+                <div className="bg-zinc-950/60 p-4 rounded-2xl border border-zinc-800/80">
+                  <span className="text-[11px] text-zinc-400">Faturamento Bruto Projetado:</span>
+                  <div className="text-xl font-extrabold text-emerald-400 mt-1">R$ {estimatedRevenue}</div>
+                </div>
+              </div>
+            </div>
+
+            {/* Grids de Tráfego: UTMs e Horários */}
             <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
               {/* Tabela de UTM Sources */}
-              <div className="bg-zinc-900 border border-zinc-800 rounded-2xl p-5">
+              <div className="bg-zinc-900 border border-zinc-800 rounded-3xl p-6">
                 <div className="flex items-center justify-between mb-4">
                   <h3 className="text-sm font-bold text-white flex items-center gap-2">
                     <Globe className="w-4 h-4 text-blue-400" />
                     Origens de Tráfego (UTM Source)
                   </h3>
-                  <span className="text-xs text-zinc-400">
-                    {stats?.topSources?.length || 0} fontes
+                  <span className="text-xs text-zinc-400 font-mono">
+                    {stats?.topSources?.length || 0} canais
                   </span>
                 </div>
 
@@ -536,28 +757,28 @@ export default function AdminPage() {
                   <table className="w-full text-left text-xs">
                     <thead>
                       <tr className="border-b border-zinc-800 text-zinc-400">
-                        <th className="pb-2 font-medium">Origem</th>
-                        <th className="pb-2 font-medium text-right">Visitas</th>
-                        <th className="pb-2 font-medium text-right">Cliques</th>
-                        <th className="pb-2 font-medium text-right">CR %</th>
+                        <th className="pb-2 font-semibold">Canal</th>
+                        <th className="pb-2 font-semibold text-right">Acessos</th>
+                        <th className="pb-2 font-semibold text-right">Cliques</th>
+                        <th className="pb-2 font-semibold text-right">Taxa (CR)</th>
                       </tr>
                     </thead>
                     <tbody className="divide-y divide-zinc-800/60">
                       {stats?.topSources?.length ? (
                         stats.topSources.map((item, idx) => (
                           <tr key={idx} className="hover:bg-zinc-800/30">
-                            <td className="py-2.5 font-medium text-zinc-200 flex items-center gap-2">
+                            <td className="py-3 font-semibold text-zinc-200 flex items-center gap-2">
                               <span className="w-2 h-2 rounded-full bg-blue-500" />
                               <span className="capitalize">{item.source}</span>
                             </td>
-                            <td className="py-2.5 text-right text-zinc-300">{item.visits}</td>
-                            <td className="py-2.5 text-right text-emerald-400 font-semibold">{item.clicks}</td>
-                            <td className="py-2.5 text-right text-purple-400 font-bold">{item.cr}%</td>
+                            <td className="py-3 text-right text-zinc-300 font-mono">{item.visits}</td>
+                            <td className="py-3 text-right text-emerald-400 font-bold font-mono">{item.clicks}</td>
+                            <td className="py-3 text-right text-purple-400 font-black font-mono">{item.cr}%</td>
                           </tr>
                         ))
                       ) : (
                         <tr>
-                          <td colSpan={4} className="py-6 text-center text-zinc-500">
+                          <td colSpan={4} className="py-8 text-center text-zinc-500">
                             Nenhum tráfego registrado no período
                           </td>
                         </tr>
@@ -567,12 +788,12 @@ export default function AdminPage() {
                 </div>
               </div>
 
-              {/* Navegadores & In-App (Crucial para Instagram/TikTok Ads) */}
-              <div className="bg-zinc-900 border border-zinc-800 rounded-2xl p-5">
-                <div className="flex items-center justify-between mb-4">
+              {/* Navegadores & In-App (Instagram/TikTok Ads) */}
+              <div className="bg-zinc-900 border border-zinc-800 rounded-3xl p-6 space-y-4">
+                <div className="flex items-center justify-between">
                   <h3 className="text-sm font-bold text-white flex items-center gap-2">
                     <Smartphone className="w-4 h-4 text-pink-400" />
-                    Navegadores & In-App (Apps de Origem)
+                    Navegadores & In-App (Origem do Usuário)
                   </h3>
                 </div>
 
@@ -582,13 +803,13 @@ export default function AdminPage() {
                       const pct = Math.round((count / (stats.totalVisits || 1)) * 100);
                       return (
                         <div key={idx} className="space-y-1">
-                          <div className="flex justify-between text-xs font-medium">
+                          <div className="flex justify-between text-xs font-semibold">
                             <span className="text-zinc-300">{browser}</span>
-                            <span className="text-zinc-400">{count} ({pct}%)</span>
+                            <span className="text-zinc-400 font-mono">{count} ({pct}%)</span>
                           </div>
-                          <div className="w-full h-2 bg-zinc-800 rounded-full overflow-hidden">
+                          <div className="w-full h-2.5 bg-zinc-800 rounded-full overflow-hidden">
                             <div
-                              className="h-full bg-gradient-to-r from-blue-500 to-indigo-500 rounded-full"
+                              className="h-full bg-gradient-to-r from-blue-500 via-indigo-500 to-purple-500 rounded-full"
                               style={{ width: `${pct}%` }}
                             />
                           </div>
@@ -596,21 +817,21 @@ export default function AdminPage() {
                       );
                     })
                   ) : (
-                    <p className="text-xs text-zinc-500 py-4 text-center">Nenhum dado de navegador ainda</p>
+                    <p className="text-xs text-zinc-500 py-6 text-center">Nenhum dado de navegador registrado</p>
                   )}
                 </div>
 
-                {/* Top Cidades / Estados */}
-                <div className="mt-6 pt-4 border-t border-zinc-800">
-                  <h4 className="text-xs font-bold text-zinc-300 uppercase tracking-wider mb-3">
-                    Top Localizações
+                {/* Top Localizações */}
+                <div className="pt-4 border-t border-zinc-800">
+                  <h4 className="text-xs font-bold text-zinc-300 uppercase tracking-wider mb-2.5">
+                    Top Cidades & Regiões
                   </h4>
                   <div className="flex flex-wrap gap-2">
                     {stats?.topLocations?.length ? (
                       stats.topLocations.map((loc, i) => (
                         <span
                           key={i}
-                          className="px-2.5 py-1 rounded-lg bg-zinc-800 border border-zinc-700 text-xs text-zinc-300"
+                          className="px-3 py-1 rounded-xl bg-zinc-800/80 border border-zinc-700/80 text-xs text-zinc-300"
                         >
                           📍 {loc.location} <b className="text-blue-400 ml-1">({loc.count})</b>
                         </span>
@@ -623,93 +844,288 @@ export default function AdminPage() {
               </div>
             </div>
 
-            {/* Log de Visitantes em Tempo Real */}
-            <div className="bg-zinc-900 border border-zinc-800 rounded-2xl p-5">
-              <div className="flex flex-wrap items-center justify-between gap-3 mb-4">
-                <div>
-                  <h3 className="text-sm font-bold text-white">Feed de Acessos em Tempo Real</h3>
-                  <p className="text-xs text-zinc-400">Últimos acessos e cliques registrados</p>
-                </div>
-
-                <input
-                  type="text"
-                  placeholder="Buscar por UTM, cidade, dispositivo..."
-                  value={searchLog}
-                  onChange={(e) => setSearchLog(e.target.value)}
-                  className="px-3 py-1.5 bg-zinc-950 border border-zinc-800 rounded-xl text-xs text-white placeholder-zinc-500 focus:outline-none focus:ring-1 focus:ring-blue-500 w-full sm:w-64"
-                />
+            {/* Gráfico de Acessos 24 Horas */}
+            <div className="bg-zinc-900 border border-zinc-800 rounded-3xl p-6">
+              <div className="flex items-center justify-between mb-4">
+                <h3 className="text-sm font-bold text-white flex items-center gap-2">
+                  <Clock className="w-4 h-4 text-purple-400" />
+                  Distribuição de Tráfego por Horário do Dia (Picos de Conversão)
+                </h3>
               </div>
 
-              <div className="overflow-x-auto max-h-96 overflow-y-auto">
-                <table className="w-full text-left text-xs">
-                  <thead className="sticky top-0 bg-zinc-900 border-b border-zinc-800 text-zinc-400">
-                    <tr>
-                      <th className="py-2 px-3 font-medium">Hora</th>
-                      <th className="py-2 px-3 font-medium">Status</th>
-                      <th className="py-2 px-3 font-medium">UTM Source / Campanha</th>
-                      <th className="py-2 px-3 font-medium">Dispositivo & SO</th>
-                      <th className="py-2 px-3 font-medium">Navegador</th>
-                      <th className="py-2 px-3 font-medium">Localização</th>
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y divide-zinc-800/60 font-mono">
-                    {filteredLogs?.length ? (
-                      filteredLogs.map((visit) => (
-                        <tr key={visit.id} className="hover:bg-zinc-800/30">
-                          <td className="py-2.5 px-3 text-zinc-400 whitespace-nowrap">
-                            {new Date(visit.timestamp).toLocaleTimeString("pt-BR", {
-                              hour: "2-digit",
-                              minute: "2-digit",
-                              second: "2-digit",
-                            })}
-                          </td>
-                          <td className="py-2.5 px-3 whitespace-nowrap">
-                            {visit.clicked ? (
-                              <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-emerald-500/20 text-emerald-400 border border-emerald-500/30 text-[11px] font-sans font-semibold">
-                                <CheckCircle2 className="w-3 h-3" /> Clicou no Telegram
-                              </span>
-                            ) : (
-                              <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-zinc-800 text-zinc-400 border border-zinc-700 text-[11px] font-sans">
-                                <Eye className="w-3 h-3" /> Visualizou
-                              </span>
-                            )}
-                          </td>
-                          <td className="py-2.5 px-3 font-sans">
-                            <span className="font-semibold text-blue-400">{visit.utm_source}</span>
-                            {visit.utm_campaign && visit.utm_campaign !== "geral" && (
-                              <span className="text-zinc-400 ml-1.5 text-[11px]">({visit.utm_campaign})</span>
-                            )}
-                          </td>
-                          <td className="py-2.5 px-3 font-sans text-zinc-300">
-                            {visit.device} • {visit.os}
-                          </td>
-                          <td className="py-2.5 px-3 font-sans text-zinc-300">
-                            {visit.browser}
-                          </td>
-                          <td className="py-2.5 px-3 font-sans text-zinc-400 whitespace-nowrap">
-                            📍 {visit.city || "Desconhecido"} {visit.region ? `(${visit.region})` : ""}
-                          </td>
-                        </tr>
-                      ))
-                    ) : (
-                      <tr>
-                        <td colSpan={6} className="py-8 text-center text-zinc-500 font-sans">
-                          Nenhum acesso correspondente encontrado
-                        </td>
-                      </tr>
-                    )}
-                  </tbody>
-                </table>
+              <div className="h-44 flex items-end gap-1.5 pt-4 pb-2 px-2 overflow-x-auto">
+                {stats?.hourly ? (
+                  stats.hourly.labels.map((hour, idx) => {
+                    const visitsCount = stats.hourly.visits[idx] || 0;
+                    const clicksCount = stats.hourly.clicks[idx] || 0;
+                    const maxCount = Math.max(...stats.hourly.visits, 1);
+                    const heightPct = Math.round((visitsCount / maxCount) * 100);
+
+                    return (
+                      <div key={idx} className="flex-1 min-w-[20px] flex flex-col items-center gap-1.5 group relative">
+                        {/* Tooltip no hover */}
+                        <div className="absolute -top-12 bg-black/90 px-2.5 py-1 rounded-lg border border-zinc-700 text-[10px] text-zinc-200 hidden group-hover:flex flex-col items-center z-30 whitespace-nowrap shadow-xl">
+                          <span>{hour}</span>
+                          <span className="font-bold text-blue-400">{visitsCount} visitas</span>
+                          <span className="font-bold text-emerald-400">{clicksCount} cliques</span>
+                        </div>
+
+                        {/* Barra */}
+                        <div className="w-full bg-zinc-800 rounded-t-md h-32 flex items-end overflow-hidden">
+                          <div
+                            className="w-full bg-gradient-to-t from-blue-600 to-indigo-500 rounded-t-md transition-all duration-300"
+                            style={{ height: `${Math.max(heightPct, visitsCount > 0 ? 8 : 0)}%` }}
+                          />
+                        </div>
+                        <span className="text-[10px] text-zinc-500 font-mono">{hour}</span>
+                      </div>
+                    );
+                  })
+                ) : null}
               </div>
             </div>
           </div>
         )}
 
-        {/* ================= ABA 2: PERSONALIZAR PÁGINA & VISUAL ================= */}
+        {/* ================= ABA 2: FEED DE VISITANTES & CLICKS ================= */}
+        {activeTab === "feed" && (
+          <div className="bg-zinc-900 border border-zinc-800 rounded-3xl p-6 space-y-4">
+            <div className="flex flex-wrap items-center justify-between gap-4">
+              <div>
+                <h3 className="text-base font-bold text-white flex items-center gap-2">
+                  <Activity className="w-4 h-4 text-emerald-400" />
+                  Feed de Acessos em Tempo Real
+                </h3>
+                <p className="text-xs text-zinc-400">
+                  Histórico completo de cada visitante, dispositivo, cidade e status de clique
+                </p>
+              </div>
+
+              {/* Filtros rápidos */}
+              <div className="flex flex-wrap items-center gap-2">
+                <div className="flex gap-1 bg-zinc-950 p-1 rounded-xl border border-zinc-800 text-xs">
+                  <button
+                    onClick={() => setStatusFilter("all")}
+                    className={`px-3 py-1 rounded-lg font-semibold transition-all cursor-pointer ${
+                      statusFilter === "all" ? "bg-zinc-800 text-white" : "text-zinc-400 hover:text-white"
+                    }`}
+                  >
+                    Todos
+                  </button>
+                  <button
+                    onClick={() => setStatusFilter("clicked")}
+                    className={`px-3 py-1 rounded-lg font-semibold transition-all cursor-pointer ${
+                      statusFilter === "clicked" ? "bg-emerald-600 text-white" : "text-zinc-400 hover:text-white"
+                    }`}
+                  >
+                    🎯 Clicaram ({stats?.totalClicks || 0})
+                  </button>
+                  <button
+                    onClick={() => setStatusFilter("viewed")}
+                    className={`px-3 py-1 rounded-lg font-semibold transition-all cursor-pointer ${
+                      statusFilter === "viewed" ? "bg-zinc-800 text-white" : "text-zinc-400 hover:text-white"
+                    }`}
+                  >
+                    👀 Visualizaram
+                  </button>
+                </div>
+
+                <div className="relative">
+                  <Search className="absolute left-3 top-2.5 w-3.5 h-3.5 text-zinc-500" />
+                  <input
+                    type="text"
+                    placeholder="Buscar IP, cidade, UTM..."
+                    value={searchLog}
+                    onChange={(e) => setSearchLog(e.target.value)}
+                    className="pl-8 pr-3 py-1.5 bg-zinc-950 border border-zinc-800 rounded-xl text-xs text-white placeholder-zinc-500 focus:outline-none focus:ring-1 focus:ring-blue-500 w-48 sm:w-64"
+                  />
+                </div>
+              </div>
+            </div>
+
+            <div className="overflow-x-auto max-h-[600px] overflow-y-auto rounded-2xl border border-zinc-800/80">
+              <table className="w-full text-left text-xs">
+                <thead className="sticky top-0 bg-zinc-950 border-b border-zinc-800 text-zinc-400 z-10">
+                  <tr>
+                    <th className="py-3 px-4 font-semibold">Hora Exata</th>
+                    <th className="py-3 px-4 font-semibold">Status de Conversão</th>
+                    <th className="py-3 px-4 font-semibold">Canal (UTM Source)</th>
+                    <th className="py-3 px-4 font-semibold">Campanha / Criativo</th>
+                    <th className="py-3 px-4 font-semibold">Dispositivo & SO</th>
+                    <th className="py-3 px-4 font-semibold">Navegador</th>
+                    <th className="py-3 px-4 font-semibold">Localização</th>
+                    <th className="py-3 px-4 font-semibold">IP</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-zinc-800/60 font-mono">
+                  {filteredLogs?.length ? (
+                    filteredLogs.map((visit) => (
+                      <tr key={visit.id} className="hover:bg-zinc-800/30 transition-colors">
+                        <td className="py-3 px-4 text-zinc-400 whitespace-nowrap">
+                          {new Date(visit.timestamp).toLocaleTimeString("pt-BR", {
+                            hour: "2-digit",
+                            minute: "2-digit",
+                            second: "2-digit",
+                          })}
+                        </td>
+                        <td className="py-3 px-4 whitespace-nowrap font-sans">
+                          {visit.clicked ? (
+                            <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-emerald-500/20 text-emerald-400 border border-emerald-500/30 text-xs font-bold">
+                              <CheckCircle2 className="w-3.5 h-3.5" /> Clicou no Telegram
+                            </span>
+                          ) : (
+                            <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-zinc-800/80 text-zinc-400 border border-zinc-700 text-xs">
+                              <Eye className="w-3.5 h-3.5" /> Visualizou
+                            </span>
+                          )}
+                        </td>
+                        <td className="py-3 px-4 font-sans font-bold text-blue-400 capitalize">
+                          {visit.utm_source}
+                        </td>
+                        <td className="py-3 px-4 font-sans text-zinc-300">
+                          <span>{visit.utm_campaign || "-"}</span>
+                          {visit.utm_content && (
+                            <span className="text-[11px] text-zinc-500 block">criativo: {visit.utm_content}</span>
+                          )}
+                        </td>
+                        <td className="py-3 px-4 font-sans text-zinc-300">
+                          {visit.device} • {visit.os}
+                        </td>
+                        <td className="py-3 px-4 font-sans text-zinc-300">
+                          {visit.isInAppBrowser ? (
+                            <span className="text-pink-400 font-semibold">{visit.browser} (In-App)</span>
+                          ) : (
+                            visit.browser
+                          )}
+                        </td>
+                        <td className="py-3 px-4 font-sans text-zinc-300 whitespace-nowrap">
+                          📍 {visit.city || "Desconhecido"} {visit.region ? `(${visit.region})` : ""}
+                        </td>
+                        <td className="py-3 px-4 text-zinc-500 text-[11px] font-mono">
+                          {visit.ip}
+                        </td>
+                      </tr>
+                    ))
+                  ) : (
+                    <tr>
+                      <td colSpan={8} className="py-12 text-center text-zinc-500 font-sans">
+                        Nenhum acesso registrado com os filtros selecionados
+                      </td>
+                    </tr>
+                  )}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        )}
+
+        {/* ================= ABA 3: GERADOR DE LINKS UTM ================= */}
+        {activeTab === "generator" && (
+          <div className="max-w-3xl mx-auto bg-zinc-900 border border-zinc-800 rounded-3xl p-6 space-y-6">
+            <div>
+              <h3 className="text-base font-bold text-white flex items-center gap-2">
+                <LinkIcon className="w-4 h-4 text-blue-400" />
+                Gerador de Links de Rastreamento (UTM Builder)
+              </h3>
+              <p className="text-xs text-zinc-400 mt-1">
+                Crie links rastreados prontos para colocar em anúncios do TikTok, Instagram, biografias ou parcerias.
+              </p>
+            </div>
+
+            <div className="space-y-4">
+              <div>
+                <label className="block text-xs font-semibold text-zinc-300 mb-1">
+                  Canal de Tráfego (UTM Source)
+                </label>
+                <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+                  {[
+                    { label: "TikTok Ads", value: "tiktok_ads" },
+                    { label: "Instagram Ads", value: "instagram_ads" },
+                    { label: "Instagram Bio", value: "instagram_bio" },
+                    { label: "Telegram VIP", value: "telegram_canal" },
+                    { label: "Facebook Ads", value: "facebook_ads" },
+                    { label: "X / Twitter", value: "twitter" },
+                    { label: "Influencer", value: "parceria_influencer" },
+                    { label: "Outro", value: "custom" },
+                  ].map((chan) => (
+                    <button
+                      key={chan.value}
+                      type="button"
+                      onClick={() => setGeneratorChannel(chan.value)}
+                      className={`px-3 py-2 rounded-xl text-xs font-semibold border transition-all cursor-pointer ${
+                        generatorChannel === chan.value
+                          ? "bg-blue-600 text-white border-blue-500 shadow-md shadow-blue-600/30"
+                          : "bg-zinc-950 text-zinc-400 border-zinc-800 hover:border-zinc-700"
+                      }`}
+                    >
+                      {chan.label}
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                <div>
+                  <label className="block text-xs font-semibold text-zinc-300 mb-1">
+                    Nome da Campanha (UTM Campaign)
+                  </label>
+                  <input
+                    type="text"
+                    value={generatorCampaign}
+                    onChange={(e) => setGeneratorCampaign(e.target.value)}
+                    placeholder="Ex: stories_vip_01"
+                    className="w-full px-4 py-2.5 bg-zinc-950 border border-zinc-800 rounded-xl text-sm text-white focus:outline-none focus:ring-2 focus:ring-blue-500 font-mono"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-xs font-semibold text-zinc-300 mb-1">
+                    Criativo / Conteúdo (UTM Content)
+                  </label>
+                  <input
+                    type="text"
+                    value={generatorCreative}
+                    onChange={(e) => setGeneratorCreative(e.target.value)}
+                    placeholder="Ex: video_lingerie_02"
+                    className="w-full px-4 py-2.5 bg-zinc-950 border border-zinc-800 rounded-xl text-sm text-white focus:outline-none focus:ring-2 focus:ring-blue-500 font-mono"
+                  />
+                </div>
+              </div>
+
+              {/* Link Gerado */}
+              <div className="pt-4 border-t border-zinc-800">
+                <label className="block text-xs font-bold uppercase tracking-wider text-emerald-400 mb-2">
+                  Seu Link Rastreável Pronto:
+                </label>
+                <div className="flex gap-2">
+                  <input
+                    type="text"
+                    readOnly
+                    value={generatedUrl}
+                    className="flex-1 px-4 py-3 bg-zinc-950 border border-emerald-500/30 rounded-xl text-xs font-mono text-emerald-300 select-all"
+                  />
+                  <button
+                    type="button"
+                    onClick={() => copyToClipboard(generatedUrl, "Link rastreável")}
+                    className="flex items-center gap-2 px-4 py-3 bg-emerald-600 hover:bg-emerald-500 text-white rounded-xl text-xs font-bold transition-all shadow-md shadow-emerald-600/30 cursor-pointer active:scale-[0.98]"
+                  >
+                    <Copy className="w-4 h-4" />
+                    <span>Copiar Link</span>
+                  </button>
+                </div>
+                <p className="text-[11px] text-zinc-500 mt-2">
+                  Cole este link nos seus anúncios. Toda vez que um usuário clicar, o painel saberá a fonte exata e o Telegram também receberá esses dados.
+                </p>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* ================= ABA 4: PERSONALIZAR PÁGINA & VISUAL ================= */}
         {activeTab === "editor" && config && (
           <div className="grid grid-cols-1 lg:grid-cols-12 gap-8 items-start">
             {/* Formulário de Edição */}
-            <div className="lg:col-span-7 bg-zinc-900 border border-zinc-800 rounded-2xl p-6 space-y-6 shadow-sm">
+            <div className="lg:col-span-7 bg-zinc-900 border border-zinc-800 rounded-3xl p-6 space-y-6 shadow-sm">
               <div className="flex items-center justify-between pb-4 border-b border-zinc-800">
                 <div>
                   <h2 className="text-lg font-bold text-white">Editor Visual da Página</h2>
@@ -719,7 +1135,7 @@ export default function AdminPage() {
                 <button
                   onClick={handleSaveConfig}
                   disabled={saving}
-                  className="flex items-center gap-2 px-4 py-2 bg-blue-600 hover:bg-blue-500 text-white rounded-xl text-sm font-semibold shadow-lg shadow-blue-600/30 transition-all active:scale-[0.98]"
+                  className="flex items-center gap-2 px-5 py-2.5 bg-blue-600 hover:bg-blue-500 text-white rounded-xl text-xs font-bold shadow-lg shadow-blue-600/30 transition-all active:scale-[0.98] cursor-pointer"
                 >
                   <Save className="w-4 h-4" />
                   <span>{saving ? "Salvando..." : "Salvar Alterações"}</span>
@@ -739,30 +1155,29 @@ export default function AdminPage() {
                       value={config.telegramUrl}
                       onChange={(e) => setConfig({ ...config, telegramUrl: e.target.value })}
                       placeholder="https://t.me/seubot"
-                      className="w-full pl-10 pr-4 py-2.5 bg-zinc-950 border border-zinc-800 rounded-xl text-sm text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
+                      className="w-full pl-10 pr-4 py-2.5 bg-zinc-950 border border-zinc-800 rounded-xl text-sm text-white focus:outline-none focus:ring-2 focus:ring-blue-500 font-mono"
                     />
                   </div>
                   <a
                     href={config.telegramUrl}
                     target="_blank"
                     rel="noopener noreferrer"
-                    className="px-3 py-2.5 rounded-xl bg-zinc-800 hover:bg-zinc-700 text-xs font-semibold text-zinc-300 border border-zinc-700 flex items-center gap-1.5 transition-colors"
+                    className="px-4 py-2.5 rounded-xl bg-zinc-800 hover:bg-zinc-700 text-xs font-semibold text-zinc-300 border border-zinc-700 flex items-center gap-1.5 transition-colors"
                   >
                     <span>Testar</span>
                     <ExternalLink className="w-3.5 h-3.5" />
                   </a>
                 </div>
 
-                {/* Repasse de UTMs */}
                 <label className="flex items-center gap-2.5 pt-1 cursor-pointer">
                   <input
                     type="checkbox"
                     checked={config.forwardUtms}
                     onChange={(e) => setConfig({ ...config, forwardUtms: e.target.checked })}
-                    className="w-4 h-4 rounded text-blue-600 bg-zinc-950 border-zinc-700 focus:ring-blue-500"
+                    className="w-4 h-4 rounded text-blue-600 bg-zinc-950 border-zinc-700"
                   />
                   <span className="text-xs text-zinc-300">
-                    Repassar parâmetros UTMs automaticamente ao Telegram (essencial para tracking de anúncios)
+                    Repassar parâmetros UTMs automaticamente ao Telegram (essencial para tracking do bot)
                   </span>
                 </label>
               </div>
@@ -774,7 +1189,7 @@ export default function AdminPage() {
                 </label>
 
                 <div className="flex items-center gap-4">
-                  <div className="relative w-16 h-20 rounded-xl overflow-hidden border border-zinc-700 bg-zinc-950 shrink-0 shadow">
+                  <div className="relative w-16 h-20 rounded-2xl overflow-hidden border border-zinc-700 bg-zinc-950 shrink-0 shadow-lg">
                     <Image
                       src={config.photoUrl}
                       alt="Modelo Preview"
@@ -784,9 +1199,9 @@ export default function AdminPage() {
                   </div>
 
                   <div className="flex-1 space-y-2">
-                    <label className="inline-flex items-center gap-2 px-4 py-2 rounded-xl bg-zinc-800 hover:bg-zinc-700 text-xs font-semibold text-white border border-zinc-700 cursor-pointer transition-colors">
+                    <label className="inline-flex items-center gap-2 px-4 py-2.5 rounded-xl bg-zinc-800 hover:bg-zinc-700 text-xs font-bold text-white border border-zinc-700 cursor-pointer transition-colors shadow-sm">
                       <Upload className="w-4 h-4 text-blue-400" />
-                      <span>{uploading ? "Enviando foto..." : "Fazer Upload de Nova Foto"}</span>
+                      <span>{uploading ? "Enviando para o Supabase..." : "Fazer Upload de Nova Foto"}</span>
                       <input
                         type="file"
                         accept="image/*"
@@ -803,7 +1218,7 @@ export default function AdminPage() {
                         value={config.photoUrl}
                         onChange={(e) => setConfig({ ...config, photoUrl: e.target.value })}
                         placeholder="/uploads/foto.jpg ou https://..."
-                        className="flex-1 px-3 py-1 bg-zinc-950 border border-zinc-800 rounded-lg text-xs text-zinc-300 focus:outline-none focus:ring-1 focus:ring-blue-500"
+                        className="flex-1 px-3 py-1.5 bg-zinc-950 border border-zinc-800 rounded-lg text-xs text-zinc-300 focus:outline-none focus:ring-1 focus:ring-blue-500 font-mono"
                       />
                     </div>
                   </div>
@@ -824,7 +1239,7 @@ export default function AdminPage() {
                       value={config.buttonText}
                       onChange={(e) => setConfig({ ...config, buttonText: e.target.value })}
                       placeholder="Acessar agora"
-                      className="w-full px-3 py-2 bg-zinc-950 border border-zinc-800 rounded-xl text-sm text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
+                      className="w-full px-4 py-2.5 bg-zinc-950 border border-zinc-800 rounded-xl text-sm text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
                     />
                   </div>
 
@@ -835,7 +1250,7 @@ export default function AdminPage() {
                       value={config.badgeText}
                       onChange={(e) => setConfig({ ...config, badgeText: e.target.value })}
                       placeholder="Online agora • VIP"
-                      className="w-full px-3 py-2 bg-zinc-950 border border-zinc-800 rounded-xl text-sm text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
+                      className="w-full px-4 py-2.5 bg-zinc-950 border border-zinc-800 rounded-xl text-sm text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
                     />
                   </div>
                 </div>
@@ -861,7 +1276,7 @@ export default function AdminPage() {
 
                 {/* Presets rápidos */}
                 <div>
-                  <span className="block text-xs text-zinc-400 mb-2">Paletas Prontas:</span>
+                  <span className="block text-xs text-zinc-400 mb-2">Paletas de Alta Conversão:</span>
                   <div className="flex flex-wrap gap-2">
                     {colorPresets.map((preset, idx) => (
                       <button
@@ -874,14 +1289,14 @@ export default function AdminPage() {
                             buttonTextColor: preset.text,
                           })
                         }
-                        className={`px-3 py-1.5 rounded-xl text-xs font-medium border flex items-center gap-2 transition-all ${
+                        className={`px-3.5 py-2 rounded-xl text-xs font-bold border flex items-center gap-2 transition-all cursor-pointer ${
                           config.buttonBgColor === preset.bg
-                            ? "border-white ring-2 ring-blue-500"
+                            ? "border-white ring-2 ring-blue-500 scale-105"
                             : "border-zinc-700 hover:border-zinc-500"
                         }`}
                         style={{ backgroundColor: preset.bg, color: preset.text }}
                       >
-                        <span className="drop-shadow-sm font-semibold">{preset.name}</span>
+                        <span className="drop-shadow-sm">{preset.name}</span>
                       </button>
                     ))}
                   </div>
@@ -890,19 +1305,19 @@ export default function AdminPage() {
                 {/* Seletor Customizado Hexadecimal */}
                 <div className="grid grid-cols-2 gap-4">
                   <div>
-                    <label className="block text-xs text-zinc-400 mb-1">Cor de Fundo do Botão</label>
+                    <label className="block text-xs text-zinc-400 mb-1">Cor do Fundo do Botão</label>
                     <div className="flex items-center gap-2">
                       <input
                         type="color"
                         value={config.buttonBgColor}
                         onChange={(e) => setConfig({ ...config, buttonBgColor: e.target.value })}
-                        className="w-9 h-9 rounded-lg border border-zinc-700 cursor-pointer bg-transparent p-0"
+                        className="w-10 h-10 rounded-xl border border-zinc-700 cursor-pointer bg-transparent p-0"
                       />
                       <input
                         type="text"
                         value={config.buttonBgColor}
                         onChange={(e) => setConfig({ ...config, buttonBgColor: e.target.value })}
-                        className="flex-1 px-3 py-1.5 bg-zinc-950 border border-zinc-800 rounded-lg text-xs font-mono text-white"
+                        className="flex-1 px-3 py-2 bg-zinc-950 border border-zinc-800 rounded-xl text-xs font-mono text-white"
                       />
                     </div>
                   </div>
@@ -914,20 +1329,20 @@ export default function AdminPage() {
                         type="color"
                         value={config.buttonTextColor}
                         onChange={(e) => setConfig({ ...config, buttonTextColor: e.target.value })}
-                        className="w-9 h-9 rounded-lg border border-zinc-700 cursor-pointer bg-transparent p-0"
+                        className="w-10 h-10 rounded-xl border border-zinc-700 cursor-pointer bg-transparent p-0"
                       />
                       <input
                         type="text"
                         value={config.buttonTextColor}
                         onChange={(e) => setConfig({ ...config, buttonTextColor: e.target.value })}
-                        className="flex-1 px-3 py-1.5 bg-zinc-950 border border-zinc-800 rounded-lg text-xs font-mono text-white"
+                        className="flex-1 px-3 py-2 bg-zinc-950 border border-zinc-800 rounded-xl text-xs font-mono text-white"
                       />
                     </div>
                   </div>
                 </div>
 
                 {/* Efeito Glow / Pulso */}
-                <label className="flex items-center gap-2 cursor-pointer pt-2">
+                <label className="flex items-center gap-2 cursor-pointer pt-1">
                   <input
                     type="checkbox"
                     checked={config.buttonGlow}
@@ -935,29 +1350,28 @@ export default function AdminPage() {
                     className="w-4 h-4 rounded text-blue-600 bg-zinc-950 border-zinc-700"
                   />
                   <span className="text-xs text-zinc-300">
-                    Ativar animação de pulso e brilho contínuo no botão (Aumenta o CTR em 35%)
+                    Ativar animação contínua de pulso e brilho (Glow Effect para aumentar CTR)
                   </span>
                 </label>
               </div>
             </div>
 
-            {/* Simulador Mobile em Tempo Real (Preview ao Vivo) */}
+            {/* Simulador Mobile em Tempo Real */}
             <div className="lg:col-span-5 flex flex-col items-center">
-              <div className="sticky top-24 w-full max-w-[340px]">
+              <div className="sticky top-20 w-full max-w-[340px]">
                 <div className="flex items-center justify-between mb-3 px-2">
                   <span className="text-xs font-bold text-zinc-400 uppercase tracking-wider flex items-center gap-1.5">
                     <Smartphone className="w-4 h-4 text-blue-400" />
-                    Preview ao Vivo (Celular)
+                    Simulador ao Vivo
                   </span>
                   <span className="text-[11px] text-emerald-400 font-medium">● Atualização Instantânea</span>
                 </div>
 
                 {/* Moldura do Smartphone */}
                 <div className="relative w-full aspect-[9/18] max-h-[640px] rounded-[42px] border-[10px] border-zinc-800 bg-black overflow-hidden shadow-2xl ring-1 ring-white/10 flex flex-col justify-between">
-                  {/* Dynamic Island / Notch */}
                   <div className="absolute top-2 left-1/2 -translate-x-1/2 w-24 h-5 bg-zinc-900 rounded-full z-30" />
 
-                  {/* Foto de Fundo da Modelo */}
+                  {/* Foto de Fundo */}
                   <div className="absolute inset-0 w-full h-full">
                     <Image
                       src={config.photoUrl}
@@ -971,12 +1385,12 @@ export default function AdminPage() {
 
                   {/* Topo Preview */}
                   <div className="relative z-20 pt-8 px-4 flex justify-between items-center">
-                    {config.showBadge ? (
+                    {config.showBadge && (
                       <div className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-black/60 backdrop-blur-md border border-white/15 text-[11px] font-medium text-white shadow-lg">
                         <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 shadow-[0_0_6px_#34d399]" />
                         <span>{config.badgeText}</span>
                       </div>
-                    ) : <div />}
+                    )}
                   </div>
 
                   {/* Botão Preview */}
@@ -1003,11 +1417,11 @@ export default function AdminPage() {
           </div>
         )}
 
-        {/* ================= ABA 3: PIXELS & CONFIGURAÇÕES ================= */}
+        {/* ================= ABA 5: PIXELS & SUPABASE ================= */}
         {activeTab === "settings" && config && (
           <div className="max-w-3xl mx-auto space-y-6">
             {/* Status do Supabase */}
-            <div className="bg-zinc-900 border border-zinc-800 rounded-2xl p-6 space-y-4">
+            <div className="bg-zinc-900 border border-zinc-800 rounded-3xl p-6 space-y-4">
               <div className="flex items-center justify-between">
                 <div>
                   <h3 className="text-base font-bold text-white flex items-center gap-2">
@@ -1020,12 +1434,12 @@ export default function AdminPage() {
                 </div>
 
                 {supabaseStatus?.connected ? (
-                  <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-emerald-500/20 text-emerald-400 border border-emerald-500/30 text-xs font-semibold">
+                  <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-emerald-500/20 text-emerald-400 border border-emerald-500/30 text-xs font-bold">
                     <CheckCircle2 className="w-3.5 h-3.5" />
                     Conectado ao Supabase
                   </span>
                 ) : (
-                  <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-amber-500/20 text-amber-400 border border-amber-500/30 text-xs font-semibold">
+                  <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-amber-500/20 text-amber-400 border border-amber-500/30 text-xs font-bold">
                     <AlertTriangle className="w-3.5 h-3.5" />
                     Modo Local / Aguardando Chaves
                   </span>
@@ -1033,31 +1447,28 @@ export default function AdminPage() {
               </div>
 
               {supabaseStatus?.connected ? (
-                <div className="bg-zinc-950 p-4 rounded-xl border border-zinc-800/80 text-xs space-y-2">
+                <div className="bg-zinc-950 p-4 rounded-2xl border border-zinc-800/80 text-xs space-y-2">
                   <div className="flex justify-between items-center text-zinc-300">
                     <span>URL do Projeto Supabase:</span>
-                    <span className="font-mono text-emerald-400">{supabaseStatus.url}</span>
+                    <span className="font-mono text-emerald-400 font-semibold">{supabaseStatus.url}</span>
                   </div>
                   <div className="flex justify-between items-center text-zinc-300">
                     <span>Total de Acessos Gravados no PostgreSQL:</span>
-                    <span className="font-bold text-white">{supabaseStatus.visitsCount} registros</span>
+                    <span className="font-bold text-white font-mono">{supabaseStatus.visitsCount} registros</span>
                   </div>
                 </div>
               ) : (
-                <div className="bg-zinc-950 p-4 rounded-xl border border-zinc-800/80 text-xs space-y-2 text-zinc-400">
+                <div className="bg-zinc-950 p-4 rounded-2xl border border-zinc-800/80 text-xs space-y-2 text-zinc-400">
                   <p>
                     {supabaseStatus?.message ||
                       "Para vincular o Supabase, defina as variáveis NEXT_PUBLIC_SUPABASE_URL e SUPABASE_SERVICE_ROLE_KEY na Vercel ou no .env.local."}
-                  </p>
-                  <p className="text-zinc-500">
-                    O script SQL completo está salvo na pasta <code className="text-zinc-300">supabase/schema.sql</code> para ser executado no SQL Editor do seu projeto Supabase.
                   </p>
                 </div>
               )}
             </div>
 
             {/* Pixels de Rastreamento */}
-            <div className="bg-zinc-900 border border-zinc-800 rounded-2xl p-6 space-y-5">
+            <div className="bg-zinc-900 border border-zinc-800 rounded-3xl p-6 space-y-5">
               <div>
                 <h3 className="text-base font-bold text-white flex items-center gap-2">
                   <Shield className="w-4 h-4 text-blue-400" />
@@ -1112,7 +1523,7 @@ export default function AdminPage() {
                   <button
                     onClick={handleSaveConfig}
                     disabled={saving}
-                    className="px-5 py-2.5 bg-blue-600 hover:bg-blue-500 text-white rounded-xl text-xs font-semibold transition-all shadow-md active:scale-[0.98]"
+                    className="px-6 py-2.5 bg-blue-600 hover:bg-blue-500 text-white rounded-xl text-xs font-bold transition-all shadow-md active:scale-[0.98] cursor-pointer"
                   >
                     {saving ? "Salvando..." : "Salvar Pixels"}
                   </button>
@@ -1120,8 +1531,8 @@ export default function AdminPage() {
               </div>
             </div>
 
-            {/* Senha de Acesso do Admin */}
-            <div className="bg-zinc-900 border border-zinc-800 rounded-2xl p-6 space-y-4">
+            {/* Senha do Admin */}
+            <div className="bg-zinc-900 border border-zinc-800 rounded-3xl p-6 space-y-4">
               <div>
                 <h3 className="text-base font-bold text-white flex items-center gap-2">
                   <Lock className="w-4 h-4 text-purple-400" />
@@ -1142,7 +1553,7 @@ export default function AdminPage() {
                   <button
                     onClick={handleSaveConfig}
                     disabled={saving}
-                    className="px-5 py-2.5 bg-purple-600 hover:bg-purple-500 text-white rounded-xl text-xs font-semibold transition-all shadow-md active:scale-[0.98]"
+                    className="px-6 py-2.5 bg-purple-600 hover:bg-purple-500 text-white rounded-xl text-xs font-bold transition-all shadow-md active:scale-[0.98] cursor-pointer"
                   >
                     Atualizar Senha
                   </button>
@@ -1150,21 +1561,21 @@ export default function AdminPage() {
               </div>
             </div>
 
-            {/* Zona de Perigo: Zerar Métricas */}
-            <div className="bg-red-950/20 border border-red-900/40 rounded-2xl p-6 space-y-3">
+            {/* Zona de Perigo */}
+            <div className="bg-red-950/20 border border-red-900/40 rounded-3xl p-6 space-y-3">
               <div>
                 <h3 className="text-sm font-bold text-red-400 flex items-center gap-2">
                   <AlertTriangle className="w-4 h-4" />
-                  Zona de Limpeza de Dados
+                  Limpeza de Dados de Teste
                 </h3>
                 <p className="text-xs text-zinc-400 mt-1">
-                  Deseja zerar os acessos e cliques de teste antes de iniciar o tráfego oficial?
+                  Zere todos os acessos e cliques de teste antes de iniciar as campanhas oficiais de tráfego.
                 </p>
               </div>
 
               <button
                 onClick={handleResetStats}
-                className="px-4 py-2 bg-red-600/20 hover:bg-red-600/30 text-red-400 border border-red-600/30 rounded-xl text-xs font-semibold transition-colors"
+                className="px-5 py-2.5 bg-red-600/20 hover:bg-red-600/30 text-red-400 border border-red-600/30 rounded-xl text-xs font-bold transition-colors cursor-pointer"
               >
                 Limpar Todas as Estatísticas
               </button>
