@@ -73,30 +73,29 @@ CREATE INDEX IF NOT EXISTS idx_lp_visits_clicked ON public.lp_visits (clicked);
 CREATE INDEX IF NOT EXISTS idx_lp_visits_device ON public.lp_visits (device);
 
 -- ================================================================
--- PERMISSÕES ROW LEVEL SECURITY (RLS)
+-- PERMISSÕES TOTALMENTE LIBERADAS (RLS TOTAL PARA CLIENTE E ADMIN)
 -- ================================================================
 ALTER TABLE public.lp_config ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.lp_visits ENABLE ROW LEVEL SECURITY;
 
--- Permite leitura pública da config
-CREATE POLICY "Leitura pública de lp_config"
-  ON public.lp_config FOR SELECT
-  USING (true);
+-- Limpa policies antigas se existirem
+DROP POLICY IF EXISTS "Leitura pública de lp_config" ON public.lp_config;
+DROP POLICY IF EXISTS "Acesso total lp_config" ON public.lp_config;
+DROP POLICY IF EXISTS "Inserção pública de visitas" ON public.lp_visits;
+DROP POLICY IF EXISTS "Atualização pública de clique" ON public.lp_visits;
+DROP POLICY IF EXISTS "Acesso total service role em visitas" ON public.lp_visits;
+DROP POLICY IF EXISTS "Acesso total lp_visits" ON public.lp_visits;
 
--- Permite gravação pública de visitas (para o rastreamento funcionar)
-CREATE POLICY "Inserção pública de visitas"
-  ON public.lp_visits FOR INSERT
+-- Policies universais (Permite SELECT, INSERT, UPDATE, DELETE 100% livres)
+CREATE POLICY "Acesso total lp_config"
+  ON public.lp_config FOR ALL
+  USING (true)
   WITH CHECK (true);
 
--- Permite atualização do clique na visita
-CREATE POLICY "Atualização pública de clique"
-  ON public.lp_visits FOR UPDATE
-  USING (true);
-
--- Permite leitura de visitas (para o admin autenticado com service role)
-CREATE POLICY "Acesso total service role em visitas"
+CREATE POLICY "Acesso total lp_visits"
   ON public.lp_visits FOR ALL
-  USING (true);
+  USING (true)
+  WITH CHECK (true);
 
 -- ================================================================
 -- STORAGE BUCKET PARA FOTOS DA MODELO
@@ -105,12 +104,11 @@ INSERT INTO storage.buckets (id, name, public)
 VALUES ('marcinha-media', 'marcinha-media', true)
 ON CONFLICT (id) DO UPDATE SET public = true;
 
--- Permissão de leitura pública no bucket
-CREATE POLICY "Objetos públicos em marcinha-media"
-  ON storage.objects FOR SELECT
-  USING (bucket_id = 'marcinha-media');
+DROP POLICY IF EXISTS "Objetos públicos em marcinha-media" ON storage.objects;
+DROP POLICY IF EXISTS "Upload permitido em marcinha-media" ON storage.objects;
+DROP POLICY IF EXISTS "Acesso total marcinha-media" ON storage.objects;
 
--- Permissão de inserção no bucket
-CREATE POLICY "Upload permitido em marcinha-media"
-  ON storage.objects FOR INSERT
+CREATE POLICY "Acesso total marcinha-media"
+  ON storage.objects FOR ALL
+  USING (bucket_id = 'marcinha-media')
   WITH CHECK (bucket_id = 'marcinha-media');

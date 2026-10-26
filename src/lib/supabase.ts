@@ -6,7 +6,11 @@ let supabaseInstance: SupabaseClient | null = null;
 
 export function getSupabaseClient(): SupabaseClient | null {
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL || process.env.SUPABASE_URL;
-  const key = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || process.env.SUPABASE_ANON_KEY;
+  const key =
+    process.env.SUPABASE_SERVICE_ROLE_KEY ||
+    process.env.SUPABASE_SECRET_KEY ||
+    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY ||
+    process.env.SUPABASE_ANON_KEY;
 
   if (!url || !key) {
     return null;
@@ -25,10 +29,14 @@ export function getSupabaseClient(): SupabaseClient | null {
 }
 
 export function isSupabaseConfigured(): boolean {
-  return Boolean(
-    (process.env.NEXT_PUBLIC_SUPABASE_URL || process.env.SUPABASE_URL) &&
-    (process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || process.env.SUPABASE_ANON_KEY)
-  );
+  const url = process.env.NEXT_PUBLIC_SUPABASE_URL || process.env.SUPABASE_URL;
+  const key =
+    process.env.SUPABASE_SERVICE_ROLE_KEY ||
+    process.env.SUPABASE_SECRET_KEY ||
+    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY ||
+    process.env.SUPABASE_ANON_KEY;
+
+  return Boolean(url && key);
 }
 
 // ==========================================
@@ -45,8 +53,15 @@ export async function getSupabaseConfig(): Promise<LandingConfig | null> {
       .eq("id", "default")
       .maybeSingle();
 
-    if (error || !data) {
+    if (error) {
+      console.error("Erro ao consultar lp_config no Supabase:", error);
       return null;
+    }
+
+    if (!data) {
+      // Cria a linha 'default' automaticamente se não existir
+      await saveSupabaseConfig(DEFAULT_CONFIG);
+      return DEFAULT_CONFIG;
     }
 
     return {
@@ -108,7 +123,12 @@ export async function saveSupabaseConfig(config: Partial<LandingConfig>): Promis
       .from("lp_config")
       .upsert(payload, { onConflict: "id" });
 
-    return !error;
+    if (error) {
+      console.error("Erro ao fazer upsert em lp_config:", error);
+      return false;
+    }
+
+    return true;
   } catch (err) {
     console.error("Erro ao gravar config no Supabase:", err);
     return false;
@@ -147,7 +167,12 @@ export async function insertSupabaseVisit(visit: Omit<VisitEvent, "clicked" | "c
       clicked: false,
     });
 
-    return !error;
+    if (error) {
+      console.error("Erro insertSupabaseVisit:", error);
+      return false;
+    }
+
+    return true;
   } catch (err) {
     console.error("Erro ao inserir visita no Supabase:", err);
     return false;
@@ -170,7 +195,7 @@ export async function updateSupabaseClick(visitId?: string): Promise<boolean> {
       if (!error) return true;
     }
 
-    // Se não tiver visitId, atualiza a última visita recente não clicada
+    // Se não tiver visitId ou não achar, marca a visita mais recente
     const { data: latest } = await supabase
       .from("lp_visits")
       .select("id")
@@ -180,11 +205,11 @@ export async function updateSupabaseClick(visitId?: string): Promise<boolean> {
       .maybeSingle();
 
     if (latest?.id) {
-      await supabase
+      const { error } = await supabase
         .from("lp_visits")
         .update({ clicked: true, clicked_at: now })
         .eq("id", latest.id);
-      return true;
+      return !error;
     }
 
     return false;
@@ -205,7 +230,12 @@ export async function getSupabaseVisits(): Promise<VisitEvent[]> {
       .order("timestamp", { ascending: false })
       .limit(5000);
 
-    if (error || !data) return [];
+    if (error) {
+      console.error("Erro getSupabaseVisits:", error);
+      return [];
+    }
+
+    if (!data) return [];
 
     return data.map((row: any) => ({
       id: row.id,
@@ -242,9 +272,24 @@ export async function resetSupabaseVisits(): Promise<boolean> {
   if (!supabase) return false;
 
   try {
-    const { error } = await supabase.from("lp_visits").delete().neq("id", "");
-    return !error;
-  } catch {
+    // Deleta com filtro universal para limpar todas as linhas de visitas
+    const { error } = await supabase
+      .from("lp_visits")
+      .delete()
+      .gte("timestamp", "1970-01-01T00:00:00Z");
+
+    if (error) {
+      // Fallback
+      const { error: err2 } = await supabase
+        .from("lp_visits")
+        .delete()
+        .neq("id", "___none___");
+      return !err2;
+    }
+
+    return true;
+  } catch (err) {
+    console.error("Erro resetSupabaseVisits:", err);
     return false;
   }
 }

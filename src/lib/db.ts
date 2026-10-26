@@ -62,7 +62,7 @@ export function getDatabase(): DatabaseSchema {
         const seedParsed = JSON.parse(seedRaw);
         memoryDb = {
           config: { ...DEFAULT_CONFIG, ...(seedParsed.config || {}) },
-          visits: Array.isArray(seedParsed.visits) ? seedParsed.visits : [],
+          visits: [], // Visitas sempre iniciam vazias
         };
         saveDatabase(memoryDb);
         return memoryDb;
@@ -110,10 +110,14 @@ export function saveDatabase(data: DatabaseSchema): void {
 
 export async function getConfigAsync(): Promise<LandingConfig> {
   if (isSupabaseConfigured()) {
-    const supabaseConfig = await getSupabaseConfig();
-    if (supabaseConfig) {
-      if (memoryDb) memoryDb.config = supabaseConfig;
-      return supabaseConfig;
+    try {
+      const supabaseConfig = await getSupabaseConfig();
+      if (supabaseConfig) {
+        if (memoryDb) memoryDb.config = supabaseConfig;
+        return supabaseConfig;
+      }
+    } catch (e) {
+      console.error("Erro ao carregar config Supabase:", e);
     }
   }
 
@@ -128,7 +132,11 @@ export function getConfig(): LandingConfig {
 export async function updateConfigAsync(partial: Partial<LandingConfig>): Promise<LandingConfig> {
   // Salva no Supabase se configurado
   if (isSupabaseConfigured()) {
-    await saveSupabaseConfig(partial);
+    try {
+      await saveSupabaseConfig(partial);
+    } catch (e) {
+      console.error("Erro ao gravar config no Supabase:", e);
+    }
   }
 
   // Atualiza cache local
@@ -153,7 +161,11 @@ export async function recordVisitAsync(event: Omit<VisitEvent, "clicked" | "clic
   };
 
   if (isSupabaseConfigured()) {
-    await insertSupabaseVisit(event);
+    try {
+      await insertSupabaseVisit(event);
+    } catch (e) {
+      console.error("Erro ao inserir visita no Supabase:", e);
+    }
   }
 
   // Mantém no banco local também
@@ -171,7 +183,11 @@ export async function recordClickAsync(visitId?: string): Promise<boolean> {
   let recordedInSupabase = false;
 
   if (isSupabaseConfigured()) {
-    recordedInSupabase = await updateSupabaseClick(visitId);
+    try {
+      recordedInSupabase = await updateSupabaseClick(visitId);
+    } catch (e) {
+      console.error("Erro ao gravar clique no Supabase:", e);
+    }
   }
 
   const recordedLocal = recordClick(visitId);
@@ -207,9 +223,12 @@ export function recordClick(visitId?: string): boolean {
 
 export async function getVisitsAsync(): Promise<VisitEvent[]> {
   if (isSupabaseConfigured()) {
-    const visits = await getSupabaseVisits();
-    if (visits.length > 0) {
+    try {
+      const visits = await getSupabaseVisits();
+      // Retorna DIRETAMENTE do Supabase, mesmo se estiver vazio []
       return visits;
+    } catch (err) {
+      console.error("Falha ao consultar visitas do Supabase:", err);
     }
   }
 
@@ -218,7 +237,11 @@ export async function getVisitsAsync(): Promise<VisitEvent[]> {
 
 export async function resetStatsAsync(): Promise<void> {
   if (isSupabaseConfigured()) {
-    await resetSupabaseVisits();
+    try {
+      await resetSupabaseVisits();
+    } catch (e) {
+      console.error("Erro ao zerar visitas no Supabase:", e);
+    }
   }
   resetStats();
 }

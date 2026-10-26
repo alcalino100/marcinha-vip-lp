@@ -2,6 +2,8 @@ import { NextRequest, NextResponse } from "next/server";
 import { getVisitsAsync } from "@/lib/db";
 import { checkAdminAuth } from "@/lib/auth";
 
+export const dynamic = "force-dynamic";
+
 export async function GET(req: NextRequest) {
   if (!checkAdminAuth(req)) {
     return NextResponse.json({ error: "Não autorizado" }, { status: 401 });
@@ -143,5 +145,9 @@ export async function GET(req: NextRequest) {
       clicks: hourlyClicks,
     },
     recentVisits: filteredVisits.slice(0, 100),
+  }, {
+    headers: {
+      "Cache-Control": "no-store, no-cache, must-revalidate, max-age=0",
+    },
   });
 }
