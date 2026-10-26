@@ -25,6 +25,7 @@ import {
   LogOut,
   Send,
   Eye,
+  Database,
 } from "lucide-react";
 import { toast } from "sonner";
 import type { LandingConfig, VisitEvent } from "@/lib/types";
@@ -68,6 +69,15 @@ export default function AdminPage() {
   // Upload
   const [uploading, setUploading] = useState(false);
 
+  // Status Supabase
+  const [supabaseStatus, setSupabaseStatus] = useState<{
+    connected: boolean;
+    visitsCount?: number;
+    url?: string;
+    message?: string;
+    error?: string;
+  } | null>(null);
+
   // Checa token salvo
   useEffect(() => {
     const savedToken = localStorage.getItem("marcinha_admin_token");
@@ -83,7 +93,20 @@ export default function AdminPage() {
 
     fetchConfig();
     fetchStats();
+    fetchSupabaseStatus();
   }, [isAuthenticated, adminToken, period]);
+
+  const fetchSupabaseStatus = async () => {
+    try {
+      const res = await fetch("/api/admin/supabase-status", {
+        headers: { Authorization: `Bearer ${adminToken}` },
+      });
+      if (res.ok) {
+        const data = await res.json();
+        setSupabaseStatus(data);
+      }
+    } catch {}
+  };
 
   const fetchConfig = async () => {
     try {
@@ -827,16 +850,6 @@ export default function AdminPage() {
                     />
                     <span className="text-xs text-zinc-300">Exibir Badge Superior ("Online agora")</span>
                   </label>
-
-                  <label className="flex items-center gap-2 cursor-pointer">
-                    <input
-                      type="checkbox"
-                      checked={config.showAdminShortcut}
-                      onChange={(e) => setConfig({ ...config, showAdminShortcut: e.target.checked })}
-                      className="w-4 h-4 rounded text-blue-600 bg-zinc-950 border-zinc-700"
-                    />
-                    <span className="text-xs text-zinc-300">Exibir Atalho Discreto do Admin no Topo</span>
-                  </label>
                 </div>
               </div>
 
@@ -993,6 +1006,56 @@ export default function AdminPage() {
         {/* ================= ABA 3: PIXELS & CONFIGURAÇÕES ================= */}
         {activeTab === "settings" && config && (
           <div className="max-w-3xl mx-auto space-y-6">
+            {/* Status do Supabase */}
+            <div className="bg-zinc-900 border border-zinc-800 rounded-2xl p-6 space-y-4">
+              <div className="flex items-center justify-between">
+                <div>
+                  <h3 className="text-base font-bold text-white flex items-center gap-2">
+                    <Database className="w-4 h-4 text-emerald-400" />
+                    Banco de Dados & Armazenamento (Supabase)
+                  </h3>
+                  <p className="text-xs text-zinc-400 mt-1">
+                    Garante persistência total e dados reais de acessos, conversões e fotos na nuvem
+                  </p>
+                </div>
+
+                {supabaseStatus?.connected ? (
+                  <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-emerald-500/20 text-emerald-400 border border-emerald-500/30 text-xs font-semibold">
+                    <CheckCircle2 className="w-3.5 h-3.5" />
+                    Conectado ao Supabase
+                  </span>
+                ) : (
+                  <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-amber-500/20 text-amber-400 border border-amber-500/30 text-xs font-semibold">
+                    <AlertTriangle className="w-3.5 h-3.5" />
+                    Modo Local / Aguardando Chaves
+                  </span>
+                )}
+              </div>
+
+              {supabaseStatus?.connected ? (
+                <div className="bg-zinc-950 p-4 rounded-xl border border-zinc-800/80 text-xs space-y-2">
+                  <div className="flex justify-between items-center text-zinc-300">
+                    <span>URL do Projeto Supabase:</span>
+                    <span className="font-mono text-emerald-400">{supabaseStatus.url}</span>
+                  </div>
+                  <div className="flex justify-between items-center text-zinc-300">
+                    <span>Total de Acessos Gravados no PostgreSQL:</span>
+                    <span className="font-bold text-white">{supabaseStatus.visitsCount} registros</span>
+                  </div>
+                </div>
+              ) : (
+                <div className="bg-zinc-950 p-4 rounded-xl border border-zinc-800/80 text-xs space-y-2 text-zinc-400">
+                  <p>
+                    {supabaseStatus?.message ||
+                      "Para vincular o Supabase, defina as variáveis NEXT_PUBLIC_SUPABASE_URL e SUPABASE_SERVICE_ROLE_KEY na Vercel ou no .env.local."}
+                  </p>
+                  <p className="text-zinc-500">
+                    O script SQL completo está salvo na pasta <code className="text-zinc-300">supabase/schema.sql</code> para ser executado no SQL Editor do seu projeto Supabase.
+                  </p>
+                </div>
+              )}
+            </div>
+
             {/* Pixels de Rastreamento */}
             <div className="bg-zinc-900 border border-zinc-800 rounded-2xl p-6 space-y-5">
               <div>

@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { getDatabase } from "@/lib/db";
+import { getVisitsAsync } from "@/lib/db";
 import { checkAdminAuth } from "@/lib/auth";
 
 export async function GET(req: NextRequest) {
@@ -7,7 +7,7 @@ export async function GET(req: NextRequest) {
     return NextResponse.json({ error: "Não autorizado" }, { status: 401 });
   }
 
-  const { visits } = getDatabase();
+  const visits = await getVisitsAsync();
 
   // Parâmetros de filtro
   const url = new URL(req.url);

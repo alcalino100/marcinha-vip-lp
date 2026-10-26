@@ -140,7 +140,6 @@ export default function MobileLandingPage() {
   const buttonBg = config?.buttonBgColor || "#229ED9";
   const buttonTextColor = config?.buttonTextColor || "#ffffff";
   const buttonGlow = config?.buttonGlow !== false;
-  const showAdminShortcut = config?.showAdminShortcut !== false;
 
   return (
     <>
@@ -195,28 +194,16 @@ export default function MobileLandingPage() {
             <div className="absolute inset-x-0 bottom-0 h-3/5 bg-gradient-to-t from-black via-black/85 to-transparent pointer-events-none" />
           </div>
 
-          {/* Topo: Badge de status & Atalho Discreto de Admin */}
+          {/* Topo: Apenas Badge de status (sem nenhum botão de admin público) */}
           <header
-            className="relative z-10 pt-4 px-4 flex items-center justify-between"
+            className="relative z-10 pt-4 px-4 flex items-center justify-start"
             style={{ paddingTop: "calc(var(--safe-top) + 1rem)" }}
           >
-            {showBadge ? (
+            {showBadge && (
               <div className="inline-flex items-center gap-2 px-3 py-1.5 rounded-full bg-black/65 backdrop-blur-md border border-white/20 text-xs font-semibold text-white shadow-xl animate-pulse">
                 <span className="w-2 h-2 rounded-full bg-emerald-400 shadow-[0_0_8px_#34d399]" />
                 <span>{badgeText}</span>
               </div>
-            ) : (
-              <div />
-            )}
-
-            {showAdminShortcut && (
-              <a
-                href="/admin"
-                title="Painel Admin"
-                className="text-[11px] text-zinc-400/50 hover:text-white px-2 py-1 rounded bg-black/40 backdrop-blur-sm border border-white/10 transition-colors"
-              >
-                ⚙️ Admin
-              </a>
             )}
           </header>
 

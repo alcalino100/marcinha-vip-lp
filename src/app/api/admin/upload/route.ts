@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import fs from "fs";
 import path from "path";
 import { checkAdminAuth } from "@/lib/auth";
+import { isSupabaseConfigured, uploadToSupabaseStorage } from "@/lib/supabase";
 
 export async function POST(req: NextRequest) {
   if (!checkAdminAuth(req)) {
@@ -23,7 +24,20 @@ export async function POST(req: NextRequest) {
     const bytes = await file.arrayBuffer();
     const buffer = Buffer.from(bytes);
 
-    // Se estiver na Vercel (sistema de arquivos read-only), converte para Data URI base64
+    // 1. Se o Supabase estiver configurado, envia para o bucket de Storage do Supabase
+    if (isSupabaseConfigured()) {
+      const supabaseUrl = await uploadToSupabaseStorage(buffer, file.name, file.type || "image/jpeg");
+      if (supabaseUrl) {
+        return NextResponse.json({
+          success: true,
+          url: supabaseUrl,
+          filename: file.name,
+          storage: "supabase",
+        });
+      }
+    }
+
+    // 2. Se estiver na Vercel sem Supabase Storage, converte para Data URI Base64
     if (process.env.VERCEL) {
       const mimeType = file.type || "image/jpeg";
       const base64Data = buffer.toString("base64");
@@ -33,10 +47,11 @@ export async function POST(req: NextRequest) {
         success: true,
         url: dataUrl,
         filename: file.name,
+        storage: "base64",
       });
     }
 
-    // Em ambiente local ou VPS com disco gravável
+    // 3. Em ambiente local
     const ext = path.extname(file.name) || ".jpg";
     const filename = `model-${Date.now()}${ext}`;
     const uploadDir = path.join(process.cwd(), "public", "uploads");
@@ -54,6 +69,7 @@ export async function POST(req: NextRequest) {
       success: true,
       url: publicUrl,
       filename,
+      storage: "local",
     });
   } catch (error) {
     console.error("Erro no upload:", error);

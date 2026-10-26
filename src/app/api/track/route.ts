@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { recordVisit } from "@/lib/db";
+import { recordVisitAsync } from "@/lib/db";
 import { lookupGeo } from "@/lib/geo";
 import { parseUserAgent } from "@/lib/ua";
 
@@ -29,7 +29,7 @@ export async function POST(req: NextRequest) {
 
     const visitId = body.visitId || `vis_${Date.now()}_${Math.random().toString(36).substring(2, 9)}`;
 
-    const visit = recordVisit({
+    const visit = await recordVisitAsync({
       id: visitId,
       timestamp: new Date().toISOString(),
       ip,

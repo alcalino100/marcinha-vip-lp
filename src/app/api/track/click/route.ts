@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { recordClick } from "@/lib/db";
+import { recordClickAsync } from "@/lib/db";
 
 export async function POST(req: NextRequest) {
   try {
@@ -19,7 +19,7 @@ export async function POST(req: NextRequest) {
       }
     }
 
-    const recorded = recordClick(visitId);
+    const recorded = await recordClickAsync(visitId);
 
     return NextResponse.json({
       success: true,

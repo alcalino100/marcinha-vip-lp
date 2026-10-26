@@ -1,6 +1,15 @@
 import fs from "fs";
 import path from "path";
 import { LandingConfig, VisitEvent, DatabaseSchema } from "./types";
+import {
+  isSupabaseConfigured,
+  getSupabaseConfig,
+  saveSupabaseConfig,
+  insertSupabaseVisit,
+  updateSupabaseClick,
+  getSupabaseVisits,
+  resetSupabaseVisits,
+} from "./supabase";
 
 const isVercel = Boolean(process.env.VERCEL);
 const DATA_DIR = isVercel ? path.join("/tmp", "marcinha_data") : path.join(process.cwd(), "data");
@@ -21,7 +30,7 @@ export const DEFAULT_CONFIG: LandingConfig = {
   buttonBgColor: "#229ED9",
   buttonTextColor: "#ffffff",
   buttonGlow: true,
-  showAdminShortcut: true,
+  showAdminShortcut: false, // Oculto na LP pública
   adminPassword: "marcinha2026",
   facebookPixelId: "",
   googleAnalyticsId: "",
@@ -33,7 +42,9 @@ let memoryDb: DatabaseSchema | null = null;
 
 function ensureDataDir() {
   if (!fs.existsSync(DATA_DIR)) {
-    fs.mkdirSync(DATA_DIR, { recursive: true });
+    try {
+      fs.mkdirSync(DATA_DIR, { recursive: true });
+    } catch {}
   }
 }
 
@@ -45,7 +56,6 @@ export function getDatabase(): DatabaseSchema {
   ensureDataDir();
 
   if (!fs.existsSync(DB_FILE)) {
-    // Se o banco ainda não existe em /tmp (ex: Vercel), tenta carregar do arquivo do repositório
     if (fs.existsSync(REPO_SEED_FILE)) {
       try {
         const seedRaw = fs.readFileSync(REPO_SEED_FILE, "utf-8");
@@ -76,7 +86,6 @@ export function getDatabase(): DatabaseSchema {
     };
     return memoryDb;
   } catch (error) {
-    console.error("Erro ao ler db.json, reinicializando...", error);
     memoryDb = {
       config: { ...DEFAULT_CONFIG },
       visits: [],
@@ -92,14 +101,38 @@ export function saveDatabase(data: DatabaseSchema): void {
     const tempFile = `${DB_FILE}.tmp`;
     fs.writeFileSync(tempFile, JSON.stringify(data, null, 2), "utf-8");
     fs.renameSync(tempFile, DB_FILE);
-  } catch (err) {
-    console.error("Erro ao gravar db.json:", err);
+  } catch (err) {}
+}
+
+// ==========================================
+// MÉTODOS HÍBRIDOS (SUPABASE + LOCAL CACHE)
+// ==========================================
+
+export async function getConfigAsync(): Promise<LandingConfig> {
+  if (isSupabaseConfigured()) {
+    const supabaseConfig = await getSupabaseConfig();
+    if (supabaseConfig) {
+      if (memoryDb) memoryDb.config = supabaseConfig;
+      return supabaseConfig;
+    }
   }
+
+  return getConfig();
 }
 
 export function getConfig(): LandingConfig {
   const db = getDatabase();
   return db.config;
+}
+
+export async function updateConfigAsync(partial: Partial<LandingConfig>): Promise<LandingConfig> {
+  // Salva no Supabase se configurado
+  if (isSupabaseConfigured()) {
+    await saveSupabaseConfig(partial);
+  }
+
+  // Atualiza cache local
+  return updateConfig(partial);
 }
 
 export function updateConfig(partial: Partial<LandingConfig>): LandingConfig {
@@ -113,21 +146,36 @@ export function updateConfig(partial: Partial<LandingConfig>): LandingConfig {
   return db.config;
 }
 
-export function recordVisit(event: Omit<VisitEvent, "clicked" | "clickedAt">): VisitEvent {
-  const db = getDatabase();
+export async function recordVisitAsync(event: Omit<VisitEvent, "clicked" | "clickedAt">): Promise<VisitEvent> {
   const visit: VisitEvent = {
     ...event,
     clicked: false,
   };
 
-  // Mantém no máximo os últimos 5000 acessos para performance
+  if (isSupabaseConfigured()) {
+    await insertSupabaseVisit(event);
+  }
+
+  // Mantém no banco local também
+  const db = getDatabase();
   if (db.visits.length > 5000) {
     db.visits = db.visits.slice(-4000);
   }
-
   db.visits.unshift(visit);
   saveDatabase(db);
+
   return visit;
+}
+
+export async function recordClickAsync(visitId?: string): Promise<boolean> {
+  let recordedInSupabase = false;
+
+  if (isSupabaseConfigured()) {
+    recordedInSupabase = await updateSupabaseClick(visitId);
+  }
+
+  const recordedLocal = recordClick(visitId);
+  return recordedInSupabase || recordedLocal;
 }
 
 export function recordClick(visitId?: string): boolean {
@@ -144,7 +192,6 @@ export function recordClick(visitId?: string): boolean {
     }
   }
 
-  // Se não encontrar visitId específico ou não foi enviado, marca a última visita não clicada ou adiciona evento
   if (db.visits.length > 0) {
     const latest = db.visits.find((v) => !v.clicked);
     if (latest) {
@@ -156,6 +203,24 @@ export function recordClick(visitId?: string): boolean {
   }
 
   return false;
+}
+
+export async function getVisitsAsync(): Promise<VisitEvent[]> {
+  if (isSupabaseConfigured()) {
+    const visits = await getSupabaseVisits();
+    if (visits.length > 0) {
+      return visits;
+    }
+  }
+
+  return getDatabase().visits;
+}
+
+export async function resetStatsAsync(): Promise<void> {
+  if (isSupabaseConfigured()) {
+    await resetSupabaseVisits();
+  }
+  resetStats();
 }
 
 export function resetStats(): void {

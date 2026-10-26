@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { resetStats } from "@/lib/db";
+import { resetStatsAsync } from "@/lib/db";
 import { checkAdminAuth } from "@/lib/auth";
 
 export async function POST(req: NextRequest) {
@@ -7,6 +7,6 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: "Não autorizado" }, { status: 401 });
   }
 
-  resetStats();
+  await resetStatsAsync();
   return NextResponse.json({ success: true, message: "Estatísticas limpas com sucesso" });
 }
