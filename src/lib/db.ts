@@ -1,6 +1,6 @@
 import fs from "fs";
 import path from "path";
-import { LandingConfig, VisitEvent, DatabaseSchema } from "./types";
+import { LandingConfig, VisitEvent, OrderEvent, DatabaseSchema } from "./types";
 import {
   isSupabaseConfigured,
   getSupabaseConfig,
@@ -9,6 +9,9 @@ import {
   updateSupabaseClick,
   getSupabaseVisits,
   resetSupabaseVisits,
+  upsertSupabaseOrder,
+  getSupabaseOrders,
+  resetSupabaseOrders,
 } from "./supabase";
 
 const isVercel = Boolean(process.env.VERCEL);
@@ -72,6 +75,7 @@ export function getDatabase(): DatabaseSchema {
         memoryDb = {
           config: { ...DEFAULT_CONFIG, ...(seedParsed.config || {}) },
           visits: [], // Visitas sempre iniciam vazias
+          orders: [],
         };
         saveDatabase(memoryDb);
         return memoryDb;
@@ -81,6 +85,7 @@ export function getDatabase(): DatabaseSchema {
     memoryDb = {
       config: { ...DEFAULT_CONFIG },
       visits: [],
+      orders: [],
     };
     saveDatabase(memoryDb);
     return memoryDb;
@@ -92,12 +97,14 @@ export function getDatabase(): DatabaseSchema {
     memoryDb = {
       config: { ...DEFAULT_CONFIG, ...(parsed.config || {}) },
       visits: Array.isArray(parsed.visits) ? parsed.visits : [],
+      orders: Array.isArray(parsed.orders) ? parsed.orders : [],
     };
     return memoryDb;
   } catch (error) {
     memoryDb = {
       config: { ...DEFAULT_CONFIG },
       visits: [],
+      orders: [],
     };
     return memoryDb;
   }
@@ -267,5 +274,68 @@ export async function resetStatsAsync(): Promise<void> {
 export function resetStats(): void {
   const db = getDatabase();
   db.visits = [];
+  saveDatabase(db);
+}
+
+// ==========================================
+// VENDAS & WEBHOOKS FIREBOT
+// ==========================================
+export async function upsertOrderAsync(order: OrderEvent): Promise<OrderEvent> {
+  if (isSupabaseConfigured()) {
+    try {
+      await upsertSupabaseOrder(order);
+    } catch (e) {
+      console.error("Erro ao salvar pedido no Supabase:", e);
+    }
+  }
+
+  const db = getDatabase();
+  if (!Array.isArray(db.orders)) {
+    db.orders = [];
+  }
+
+  const existingIndex = db.orders.findIndex((o) => o.id === order.id);
+  if (existingIndex >= 0) {
+    db.orders[existingIndex] = {
+      ...db.orders[existingIndex],
+      ...order,
+      updatedAt: new Date().toISOString(),
+    };
+  } else {
+    db.orders.unshift(order);
+    if (db.orders.length > 5000) {
+      db.orders = db.orders.slice(0, 4000);
+    }
+  }
+
+  saveDatabase(db);
+  return order;
+}
+
+export async function getOrdersAsync(): Promise<OrderEvent[]> {
+  if (isSupabaseConfigured()) {
+    try {
+      const orders = await getSupabaseOrders();
+      return orders;
+    } catch (err) {
+      console.error("Falha ao buscar pedidos do Supabase:", err);
+    }
+  }
+
+  const db = getDatabase();
+  return Array.isArray(db.orders) ? db.orders : [];
+}
+
+export async function resetOrdersAsync(): Promise<void> {
+  if (isSupabaseConfigured()) {
+    try {
+      await resetSupabaseOrders();
+    } catch (e) {
+      console.error("Erro ao zerar pedidos no Supabase:", e);
+    }
+  }
+
+  const db = getDatabase();
+  db.orders = [];
   saveDatabase(db);
 }

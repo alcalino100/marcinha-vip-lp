@@ -1,5 +1,5 @@
 import { createClient, SupabaseClient } from "@supabase/supabase-js";
-import { LandingConfig, VisitEvent } from "./types";
+import { LandingConfig, VisitEvent, OrderEvent } from "./types";
 import { DEFAULT_CONFIG } from "./db";
 
 let supabaseInstance: SupabaseClient | null = null;
@@ -347,5 +347,125 @@ export async function uploadToSupabaseStorage(
   } catch (err) {
     console.error("Falha ao salvar no storage do Supabase:", err);
     return null;
+  }
+}
+
+// ==========================================
+// VENDAS & WEBHOOKS FIREBOT (lp_orders)
+// ==========================================
+export async function upsertSupabaseOrder(order: OrderEvent): Promise<boolean> {
+  const supabase = getSupabaseClient();
+  if (!supabase) return false;
+
+  try {
+    const payload = {
+      id: order.id,
+      platform: order.platform || "firebot",
+      event: order.event,
+      status: order.status,
+      amount: order.amount || 0,
+      customer_name: order.customerName || "",
+      customer_email: order.customerEmail || "",
+      customer_phone: order.customerPhone || "",
+      telegram_id: order.telegramId || "",
+      telegram_username: order.telegramUsername || "",
+      product_name: order.productName || "Acesso VIP",
+      utm_source: order.utm_source || "direto",
+      utm_medium: order.utm_medium || "nenhum",
+      utm_campaign: order.utm_campaign || "geral",
+      utm_content: order.utm_content || "",
+      utm_term: order.utm_term || "",
+      src: order.src || "",
+      sck: order.sck || "",
+      raw_payload: order.rawPayload || {},
+      created_at: order.createdAt || new Date().toISOString(),
+      updated_at: new Date().toISOString(),
+    };
+
+    const { error } = await supabase
+      .from("lp_orders")
+      .upsert(payload, { onConflict: "id" });
+
+    if (error) {
+      console.error("Erro upsertSupabaseOrder:", error);
+      return false;
+    }
+
+    return true;
+  } catch (err) {
+    console.error("Erro ao inserir/atualizar pedido no Supabase:", err);
+    return false;
+  }
+}
+
+export async function getSupabaseOrders(): Promise<OrderEvent[]> {
+  const supabase = getSupabaseClient();
+  if (!supabase) return [];
+
+  try {
+    const { data, error } = await supabase
+      .from("lp_orders")
+      .select("*")
+      .order("created_at", { ascending: false })
+      .limit(2000);
+
+    if (error) {
+      console.error("Erro getSupabaseOrders:", error);
+      return [];
+    }
+
+    if (!data) return [];
+
+    return data.map((row: any) => ({
+      id: row.id,
+      platform: row.platform || "firebot",
+      event: row.event || "pix_created",
+      status: (row.status as any) || "pending",
+      amount: Number(row.amount) || 0,
+      customerName: row.customer_name || "",
+      customerEmail: row.customer_email || "",
+      customerPhone: row.customer_phone || "",
+      telegramId: row.telegram_id || "",
+      telegramUsername: row.telegram_username || "",
+      productName: row.product_name || "Acesso VIP",
+      utm_source: row.utm_source || "direto",
+      utm_medium: row.utm_medium || "",
+      utm_campaign: row.utm_campaign || "",
+      utm_content: row.utm_content || "",
+      utm_term: row.utm_term || "",
+      src: row.src || "",
+      sck: row.sck || "",
+      rawPayload: row.raw_payload || {},
+      createdAt: row.created_at,
+      updatedAt: row.updated_at,
+    }));
+  } catch (err) {
+    console.error("Erro ao buscar pedidos no Supabase:", err);
+    return [];
+  }
+}
+
+export async function resetSupabaseOrders(): Promise<boolean> {
+  const supabase = getSupabaseClient();
+  if (!supabase) return false;
+
+  try {
+    const { error } = await supabase
+      .from("lp_orders")
+      .delete()
+      .gte("created_at", "1970-01-01T00:00:00Z");
+
+    if (error) {
+      const { error: err2 } = await supabase
+        .from("lp_orders")
+        .delete()
+        .neq("id", "___none___");
+      return !err2;
+    }
+
+    return true;
+  } catch (err) {
+    console.error("Erro resetSupabaseOrders:", err);
+    return false;
   }
 }

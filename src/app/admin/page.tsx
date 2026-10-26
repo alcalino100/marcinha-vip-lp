@@ -38,9 +38,13 @@ import {
   Trash2,
   Search,
   Check,
+  CheckCheck,
+  Code,
+  QrCode,
+  ArrowUpRight,
 } from "lucide-react";
 import { toast } from "sonner";
-import type { LandingConfig, VisitEvent } from "@/lib/types";
+import type { LandingConfig, VisitEvent, OrderEvent, OrdersSummary } from "@/lib/types";
 import BrazilMap from "@/components/BrazilMap";
 
 interface StatsData {
@@ -69,8 +73,17 @@ export default function AdminPage() {
   const [isAuthenticated, setIsAuthenticated] = useState(false);
   const [passwordInput, setPasswordInput] = useState("");
   const [adminToken, setAdminToken] = useState<string>("");
-  const [activeTab, setActiveTab] = useState<"stats" | "feed" | "generator" | "editor" | "settings">("stats");
+  const [activeTab, setActiveTab] = useState<"stats" | "sales" | "feed" | "generator" | "editor" | "settings">("stats");
   const [period, setPeriod] = useState<"today" | "7d" | "30d" | "all">("today");
+
+  // Vendas & Webhook Firebot
+  const [ordersData, setOrdersData] = useState<OrdersSummary | null>(null);
+  const [loadingOrders, setLoadingOrders] = useState(false);
+  const [orderStatusFilter, setOrderStatusFilter] = useState<string>("all");
+  const [orderSearch, setOrderSearch] = useState<string>("");
+  const [selectedPayload, setSelectedPayload] = useState<Record<string, any> | null>(null);
+  const [simulating, setSimulating] = useState(false);
+  const [copiedWebhook, setCopiedWebhook] = useState(false);
 
   // Configuração atual da LP
   const [config, setConfig] = useState<LandingConfig | null>(null);
@@ -133,6 +146,7 @@ export default function AdminPage() {
 
     fetchConfig();
     fetchStats();
+    fetchOrders();
     fetchSupabaseStatus();
   }, [isAuthenticated, adminToken, period]);
 
@@ -142,6 +156,7 @@ export default function AdminPage() {
 
     const timer = setInterval(() => {
       fetchStats(true);
+      fetchOrders(true);
       setLastRefreshedAt(new Date());
     }, autoRefreshInterval * 1000);
 
@@ -204,6 +219,83 @@ export default function AdminPage() {
     } finally {
       if (!isSilent) setLoadingStats(false);
     }
+  };
+
+  const fetchOrders = async (isSilent = false) => {
+    if (!isSilent) setLoadingOrders(true);
+    try {
+      const res = await fetch(`/api/admin/orders?period=${period}`, {
+        headers: { Authorization: `Bearer ${adminToken}` },
+      });
+      if (res.ok) {
+        const data = await res.json();
+        setOrdersData(data);
+      }
+    } catch (err) {
+      if (!isSilent) toast.error("Falha ao carregar vendas do FireBot");
+    } finally {
+      if (!isSilent) setLoadingOrders(false);
+    }
+  };
+
+  const handleSimulateOrder = async (type: "created" | "paid") => {
+    setSimulating(true);
+    try {
+      const res = await fetch("/api/admin/orders/simulate", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${adminToken}`,
+        },
+        body: JSON.stringify({
+          type,
+          amount: ticketPrice || 29.9,
+          utm_source: "tiktok_ads",
+          utm_campaign: "campanha_vip_01",
+          username: `lead_${Math.floor(1000 + Math.random() * 9000)}`,
+        }),
+      });
+      const data = await res.json();
+      if (res.ok) {
+        toast.success(data.message || "Simulação executada!");
+        fetchOrders();
+      } else {
+        toast.error(data.error || "Erro na simulação");
+      }
+    } catch {
+      toast.error("Falha de rede ao simular");
+    } finally {
+      setSimulating(false);
+    }
+  };
+
+  const handleResetOrders = async () => {
+    if (!confirm("Tem certeza que deseja zerar TODAS as vendas e eventos de webhook registrados?")) {
+      return;
+    }
+    try {
+      const res = await fetch("/api/admin/orders", {
+        method: "DELETE",
+        headers: { Authorization: `Bearer ${adminToken}` },
+      });
+      if (res.ok) {
+        toast.success("Histórico de vendas zerado!");
+        fetchOrders();
+      } else {
+        toast.error("Falha ao zerar vendas");
+      }
+    } catch {
+      toast.error("Erro ao conectar");
+    }
+  };
+
+  const handleCopyWebhookUrl = () => {
+    if (typeof window === "undefined") return;
+    const url = `${window.location.origin}/api/webhooks/firebot`;
+    navigator.clipboard.writeText(url);
+    setCopiedWebhook(true);
+    toast.success("URL do Webhook copiada para a área de transferência!");
+    setTimeout(() => setCopiedWebhook(false), 2500);
   };
 
   const handleLogin = async (e: React.FormEvent) => {
@@ -441,6 +533,22 @@ export default function AdminPage() {
     );
   });
 
+  // Filtra lista de pedidos / webhook Firebot
+  const filteredOrdersList = ordersData?.recentOrders?.filter((o) => {
+    if (orderStatusFilter !== "all" && o.status !== orderStatusFilter) return false;
+    if (!orderSearch) return true;
+    const term = orderSearch.toLowerCase();
+    return (
+      o.id.toLowerCase().includes(term) ||
+      (o.customerName && o.customerName.toLowerCase().includes(term)) ||
+      (o.telegramUsername && o.telegramUsername.toLowerCase().includes(term)) ||
+      (o.telegramId && o.telegramId.toLowerCase().includes(term)) ||
+      (o.utm_source && o.utm_source.toLowerCase().includes(term)) ||
+      (o.utm_campaign && o.utm_campaign.toLowerCase().includes(term)) ||
+      (o.productName && o.productName.toLowerCase().includes(term))
+    );
+  }) || [];
+
   // Estimativa de faturamento
   const totalClicksCount = stats?.totalClicks || 0;
   const estimatedSales = Math.round(totalClicksCount * (conversionToSaleRate / 100));
@@ -546,11 +654,14 @@ export default function AdminPage() {
           </a>
 
           <button
-            onClick={() => fetchStats()}
+            onClick={() => {
+              fetchStats();
+              fetchOrders();
+            }}
             title="Atualizar dados agora"
             className="p-2 rounded-xl bg-zinc-800 hover:bg-zinc-700 text-zinc-300 border border-zinc-700 transition-colors cursor-pointer"
           >
-            <RefreshCw className={`w-4 h-4 ${loadingStats ? "animate-spin text-blue-400" : ""}`} />
+            <RefreshCw className={`w-4 h-4 ${loadingStats || loadingOrders ? "animate-spin text-blue-400" : ""}`} />
           </button>
 
           <button
@@ -575,6 +686,23 @@ export default function AdminPage() {
         >
           <TrendingUp className="w-4 h-4" />
           Métricas & Mapa Brasil
+        </button>
+
+        <button
+          onClick={() => setActiveTab("sales")}
+          className={`py-3.5 text-xs lg:text-sm font-bold flex items-center gap-2 border-b-2 transition-all whitespace-nowrap cursor-pointer ${
+            activeTab === "sales"
+              ? "border-emerald-500 text-emerald-400"
+              : "border-transparent text-zinc-400 hover:text-zinc-200"
+          }`}
+        >
+          <DollarSign className="w-4 h-4" />
+          Vendas & FireBot (PIX)
+          {ordersData && ordersData.paidOrders > 0 ? (
+            <span className="text-[10px] px-1.5 py-0.5 bg-emerald-500/20 text-emerald-400 rounded-full font-mono font-bold">
+              R$ {ordersData.totalRevenue.toFixed(0)}
+            </span>
+          ) : null}
         </button>
 
         <button
@@ -1019,6 +1147,509 @@ export default function AdminPage() {
                   })
                 ) : null}
               </div>
+            </div>
+          </div>
+        )}
+
+        {/* ================= ABA DE VENDAS & WEBHOOK (FIREBOT / PIX) ================= */}
+        {activeTab === "sales" && (
+          <div className="space-y-8">
+            {/* 1. Integração & URL do Webhook Firebot */}
+            <div className="bg-gradient-to-br from-zinc-900 via-zinc-900 to-emerald-950/30 border border-emerald-500/20 rounded-3xl p-6 lg:p-8 shadow-xl relative overflow-hidden">
+              <div className="absolute top-0 right-0 w-96 h-96 bg-emerald-500/5 rounded-full blur-3xl -z-10 pointer-events-none" />
+
+              <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-6 pb-6 border-b border-zinc-800">
+                <div className="space-y-1">
+                  <div className="flex items-center gap-2.5">
+                    <div className="w-8 h-8 rounded-xl bg-emerald-500/10 border border-emerald-500/30 flex items-center justify-center text-emerald-400">
+                      <QrCode className="w-4 h-4" />
+                    </div>
+                    <h2 className="text-xl font-extrabold text-white tracking-tight">
+                      Webhook FireBot • PIX Gerado & Pago
+                    </h2>
+                    <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[11px] font-bold bg-emerald-500/20 text-emerald-400 border border-emerald-500/30">
+                      <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />
+                      Pronto para Conectar
+                    </span>
+                  </div>
+                  <p className="text-xs text-zinc-400 max-w-2xl">
+                    Cadastre a URL do webhook abaixo na plataforma do seu bot (<span className="text-emerald-400 font-semibold">FireBot</span>). 
+                    Todas as cobranças PIX geradas e pagas no bot serão sincronizadas aqui em tempo real.
+                  </p>
+                </div>
+
+                {/* Botões de Simulação / Teste Rápido */}
+                <div className="flex flex-wrap items-center gap-2">
+                  <button
+                    onClick={() => handleSimulateOrder("created")}
+                    disabled={simulating}
+                    className="px-3.5 py-2 rounded-xl bg-amber-500/10 hover:bg-amber-500/20 text-amber-300 border border-amber-500/30 text-xs font-bold flex items-center gap-1.5 transition-all cursor-pointer disabled:opacity-50"
+                  >
+                    <Clock className="w-3.5 h-3.5" />
+                    <span>Testar PIX Gerado</span>
+                  </button>
+
+                  <button
+                    onClick={() => handleSimulateOrder("paid")}
+                    disabled={simulating}
+                    className="px-3.5 py-2 rounded-xl bg-emerald-500/20 hover:bg-emerald-500/30 text-emerald-300 border border-emerald-500/40 text-xs font-bold flex items-center gap-1.5 transition-all shadow-lg shadow-emerald-500/10 cursor-pointer disabled:opacity-50"
+                  >
+                    <CheckCircle2 className="w-3.5 h-3.5 text-emerald-400" />
+                    <span>Testar PIX Pago (R$ 29,90)</span>
+                  </button>
+
+                  <button
+                    onClick={handleResetOrders}
+                    title="Limpar histórico de vendas"
+                    className="p-2 rounded-xl bg-red-500/10 hover:bg-red-500/20 text-red-400 border border-red-500/20 text-xs transition-colors cursor-pointer"
+                  >
+                    <Trash2 className="w-4 h-4" />
+                  </button>
+                </div>
+              </div>
+
+              {/* Campo com a URL do Webhook para Copiar */}
+              <div className="mt-6 grid grid-cols-1 lg:grid-cols-12 gap-4 items-center">
+                <div className="lg:col-span-8 space-y-2">
+                  <label className="text-[11px] font-bold uppercase tracking-wider text-zinc-400 flex items-center gap-1.5">
+                    <Code className="w-3.5 h-3.5 text-emerald-400" />
+                    URL do Webhook (Cole no Painel do FireBot)
+                  </label>
+                  <div className="flex items-center gap-2 bg-zinc-950 border border-zinc-800 rounded-2xl p-2 px-3 shadow-inner">
+                    <span className="text-[11px] font-bold uppercase px-2 py-1 rounded-md bg-emerald-500/20 text-emerald-400 font-mono">
+                      POST
+                    </span>
+                    <input
+                      type="text"
+                      readOnly
+                      value={typeof window !== "undefined" ? `${window.location.origin}/api/webhooks/firebot` : "/api/webhooks/firebot"}
+                      className="bg-transparent text-xs lg:text-sm text-zinc-200 font-mono flex-1 focus:outline-none select-all"
+                    />
+                    <button
+                      onClick={handleCopyWebhookUrl}
+                      className="px-3 py-1.5 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-bold flex items-center gap-1.5 transition-colors shadow-md cursor-pointer"
+                    >
+                      {copiedWebhook ? (
+                        <>
+                          <Check className="w-3.5 h-3.5" />
+                          <span>Copiado!</span>
+                        </>
+                      ) : (
+                        <>
+                          <Copy className="w-3.5 h-3.5" />
+                          <span>Copiar</span>
+                        </>
+                      )}
+                    </button>
+                  </div>
+                </div>
+
+                <div className="lg:col-span-4 bg-zinc-950/70 border border-zinc-800/80 rounded-2xl p-3.5 text-xs text-zinc-400 space-y-1.5">
+                  <div className="font-bold text-zinc-300 flex items-center gap-1.5">
+                    <Sparkles className="w-3.5 h-3.5 text-emerald-400" />
+                    Eventos Automáticos
+                  </div>
+                  <ul className="text-[11px] space-y-1 list-disc list-inside text-zinc-400">
+                    <li><strong className="text-zinc-200">PIX Gerado:</strong> Registra intenção de compra e UTM</li>
+                    <li><strong className="text-zinc-200">PIX Pago:</strong> Confirma receita em R$ e converte o lead</li>
+                    <li><strong className="text-zinc-200">Compatível:</strong> FireBot, PushinPay, Kiwify e Bots Telegram</li>
+                  </ul>
+                </div>
+              </div>
+            </div>
+
+            {/* 2. Cards de Faturamento & Métricas do Firebot */}
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 lg:gap-6">
+              {/* Card 1: Faturamento Aprovado */}
+              <div className="bg-zinc-900 border border-emerald-500/30 rounded-3xl p-6 relative overflow-hidden shadow-sm">
+                <div className="absolute top-0 right-0 w-24 h-24 bg-emerald-500/10 rounded-full blur-2xl -z-10" />
+                <div className="flex items-center justify-between mb-4">
+                  <span className="text-xs font-bold text-zinc-400 uppercase tracking-wider">Faturamento Real</span>
+                  <div className="p-2.5 rounded-2xl bg-emerald-500/10 text-emerald-400 border border-emerald-500/20">
+                    <DollarSign className="w-5 h-5" />
+                  </div>
+                </div>
+                <div className="text-3xl lg:text-4xl font-extrabold text-white tracking-tight mb-2">
+                  R$ {ordersData ? ordersData.totalRevenue.toLocaleString("pt-BR", { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : "0,00"}
+                </div>
+                <div className="flex items-center gap-2 text-xs text-emerald-400 font-semibold">
+                  <CheckCircle2 className="w-3.5 h-3.5" />
+                  <span>{ordersData?.paidOrders || 0} PIX pagos confirmados</span>
+                </div>
+              </div>
+
+              {/* Card 2: PIX Pagos vs Gerados */}
+              <div className="bg-zinc-900 border border-zinc-800 rounded-3xl p-6 relative overflow-hidden shadow-sm">
+                <div className="flex items-center justify-between mb-4">
+                  <span className="text-xs font-bold text-zinc-400 uppercase tracking-wider">Conversão de Checkout</span>
+                  <div className="p-2.5 rounded-2xl bg-blue-500/10 text-blue-400 border border-blue-500/20">
+                    <TrendingUp className="w-5 h-5" />
+                  </div>
+                </div>
+                <div className="text-3xl lg:text-4xl font-extrabold text-white tracking-tight mb-2">
+                  {ordersData?.conversionRate || 0}%
+                </div>
+                <div className="text-xs text-zinc-400">
+                  <span className="text-white font-bold">{ordersData?.paidOrders || 0}</span> pagos de{" "}
+                  <span className="text-white font-bold">{ordersData?.totalOrders || 0}</span> PIX gerados
+                </div>
+              </div>
+
+              {/* Card 3: Ticket Médio */}
+              <div className="bg-zinc-900 border border-zinc-800 rounded-3xl p-6 relative overflow-hidden shadow-sm">
+                <div className="flex items-center justify-between mb-4">
+                  <span className="text-xs font-bold text-zinc-400 uppercase tracking-wider">Ticket Médio</span>
+                  <div className="p-2.5 rounded-2xl bg-purple-500/10 text-purple-400 border border-purple-500/20">
+                    <Star className="w-5 h-5" />
+                  </div>
+                </div>
+                <div className="text-3xl lg:text-4xl font-extrabold text-white tracking-tight mb-2">
+                  R$ {ordersData ? ordersData.averageTicket.toLocaleString("pt-BR", { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : "0,00"}
+                </div>
+                <div className="text-xs text-zinc-400">
+                  Valor médio de cada venda confirmada
+                </div>
+              </div>
+
+              {/* Card 4: Faturamento por Clique (EPC) */}
+              <div className="bg-zinc-900 border border-zinc-800 rounded-3xl p-6 relative overflow-hidden shadow-sm">
+                <div className="flex items-center justify-between mb-4">
+                  <span className="text-xs font-bold text-zinc-400 uppercase tracking-wider">Receita por Clique (EPC)</span>
+                  <div className="p-2.5 rounded-2xl bg-amber-500/10 text-amber-400 border border-amber-500/20">
+                    <Zap className="w-5 h-5" />
+                  </div>
+                </div>
+                <div className="text-3xl lg:text-4xl font-extrabold text-white tracking-tight mb-2">
+                  R$ {stats?.totalClicks && stats.totalClicks > 0 && ordersData?.totalRevenue
+                    ? (ordersData.totalRevenue / stats.totalClicks).toLocaleString("pt-BR", { minimumFractionDigits: 2, maximumFractionDigits: 2 })
+                    : "0,00"}
+                </div>
+                <div className="text-xs text-zinc-400">
+                  Faturamento médio a cada clique no Telegram
+                </div>
+              </div>
+            </div>
+
+            {/* 3. Funil Completo: Da LP ao Pagamento */}
+            <div className="bg-zinc-900 border border-zinc-800 rounded-3xl p-6 lg:p-8 shadow-sm">
+              <div className="mb-6">
+                <h3 className="text-base font-bold text-white flex items-center gap-2">
+                  <Activity className="w-4 h-4 text-emerald-400" />
+                  Funil Completo de Conversão (Landing Page ➡️ Bot FireBot ➡️ PIX Pago)
+                </h3>
+                <p className="text-xs text-zinc-400">
+                  Acompanhe exatamente quantos visitantes da página viraram cliques no Telegram e quantos pagaram o VIP
+                </p>
+              </div>
+
+              <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+                {/* Etapa 1: Visitas */}
+                <div className="bg-zinc-950 border border-zinc-800 rounded-2xl p-4 text-center space-y-1 relative">
+                  <span className="text-[10px] font-bold text-zinc-500 uppercase">1. Visitantes LP</span>
+                  <div className="text-2xl font-black text-white">{stats?.totalVisits || 0}</div>
+                  <span className="text-[11px] text-zinc-400">100% tráfego</span>
+                </div>
+
+                {/* Etapa 2: Cliques Telegram */}
+                <div className="bg-zinc-950 border border-zinc-800 rounded-2xl p-4 text-center space-y-1 relative">
+                  <span className="text-[10px] font-bold text-blue-400 uppercase">2. Foram pro Bot</span>
+                  <div className="text-2xl font-black text-blue-400">{stats?.totalClicks || 0}</div>
+                  <span className="text-[11px] text-zinc-400">{stats?.conversionRate || 0}% dos visitantes</span>
+                </div>
+
+                {/* Etapa 3: PIX Gerados */}
+                <div className="bg-zinc-950 border border-zinc-800 rounded-2xl p-4 text-center space-y-1 relative">
+                  <span className="text-[10px] font-bold text-amber-400 uppercase">3. PIX Gerados</span>
+                  <div className="text-2xl font-black text-amber-400">{ordersData?.totalOrders || 0}</div>
+                  <span className="text-[11px] text-zinc-400">Intenções no bot</span>
+                </div>
+
+                {/* Etapa 4: PIX Pagos */}
+                <div className="bg-zinc-950 border border-emerald-500/30 rounded-2xl p-4 text-center space-y-1 relative shadow-lg shadow-emerald-500/5">
+                  <span className="text-[10px] font-bold text-emerald-400 uppercase">4. PIX Pagos</span>
+                  <div className="text-2xl font-black text-emerald-400">{ordersData?.paidOrders || 0}</div>
+                  <span className="text-[11px] font-semibold text-emerald-300">
+                    R$ {ordersData ? ordersData.totalRevenue.toLocaleString("pt-BR", { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : "0,00"}
+                  </span>
+                </div>
+              </div>
+            </div>
+
+            {/* 4. Tabela de Atribuição por UTM Source / Campanhas */}
+            <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
+              {/* Vendas por UTM Source */}
+              <div className="bg-zinc-900 border border-zinc-800 rounded-3xl p-6 shadow-sm space-y-4">
+                <div className="flex items-center justify-between pb-3 border-b border-zinc-800">
+                  <div>
+                    <h3 className="text-sm font-bold text-white flex items-center gap-2">
+                      <TrendingUp className="w-4 h-4 text-emerald-400" />
+                      Faturamento por Canal (UTM Source)
+                    </h3>
+                    <p className="text-[11px] text-zinc-400">Descubra qual canal trouxe as vendas reais</p>
+                  </div>
+                </div>
+
+                {ordersData?.topSources && ordersData.topSources.length > 0 ? (
+                  <div className="space-y-2.5">
+                    {ordersData.topSources.map((item, idx) => (
+                      <div
+                        key={idx}
+                        className="bg-zinc-950/80 border border-zinc-800/80 rounded-2xl p-3 flex items-center justify-between text-xs"
+                      >
+                        <div className="space-y-0.5">
+                          <span className="font-bold text-white uppercase text-[11px] tracking-wide">
+                            {item.source}
+                          </span>
+                          <div className="text-[11px] text-zinc-400">
+                            {item.paid} pagos de {item.orders} gerados • <span className="text-emerald-400 font-semibold">{item.cr}% conv.</span>
+                          </div>
+                        </div>
+
+                        <div className="text-right">
+                          <div className="text-sm font-extrabold text-emerald-400 font-mono">
+                            R$ {item.revenue.toLocaleString("pt-BR", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                          </div>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                ) : (
+                  <div className="py-8 text-center text-xs text-zinc-500">
+                    Nenhum pedido registrado para este período ainda.
+                  </div>
+                )}
+              </div>
+
+              {/* Vendas por Campanha */}
+              <div className="bg-zinc-900 border border-zinc-800 rounded-3xl p-6 shadow-sm space-y-4">
+                <div className="flex items-center justify-between pb-3 border-b border-zinc-800">
+                  <div>
+                    <h3 className="text-sm font-bold text-white flex items-center gap-2">
+                      <Sparkles className="w-4 h-4 text-purple-400" />
+                      Faturamento por Campanha (UTM Campaign)
+                    </h3>
+                    <p className="text-[11px] text-zinc-400">Retorno de investimento por criativo e campanha</p>
+                  </div>
+                </div>
+
+                {ordersData?.topCampaigns && ordersData.topCampaigns.length > 0 ? (
+                  <div className="space-y-2.5">
+                    {ordersData.topCampaigns.map((item, idx) => (
+                      <div
+                        key={idx}
+                        className="bg-zinc-950/80 border border-zinc-800/80 rounded-2xl p-3 flex items-center justify-between text-xs"
+                      >
+                        <div className="space-y-0.5">
+                          <span className="font-bold text-white text-[11px]">
+                            {item.campaign}
+                          </span>
+                          <div className="text-[11px] text-zinc-400">
+                            {item.paid} pagos de {item.orders} gerados • <span className="text-purple-400 font-semibold">{item.cr}% conv.</span>
+                          </div>
+                        </div>
+
+                        <div className="text-right">
+                          <div className="text-sm font-extrabold text-white font-mono">
+                            R$ {item.revenue.toLocaleString("pt-BR", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                          </div>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                ) : (
+                  <div className="py-8 text-center text-xs text-zinc-500">
+                    Nenhuma campanha com vendas registradas ainda.
+                  </div>
+                )}
+              </div>
+            </div>
+
+            {/* 5. Tabela de Transações / Pedidos em Tempo Real */}
+            <div className="bg-zinc-900 border border-zinc-800 rounded-3xl p-6 lg:p-8 shadow-sm space-y-6">
+              <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 pb-4 border-b border-zinc-800">
+                <div>
+                  <h3 className="text-base font-bold text-white flex items-center gap-2">
+                    <Activity className="w-4 h-4 text-emerald-400" />
+                    Transações & Eventos Recebidos do FireBot
+                  </h3>
+                  <p className="text-xs text-zinc-400">
+                    Histórico detalhado de cada PIX gerado e pago com parâmetros de rastreamento
+                  </p>
+                </div>
+
+                {/* Filtros de Status & Busca */}
+                <div className="flex flex-wrap items-center gap-2">
+                  <div className="relative">
+                    <Search className="w-3.5 h-3.5 text-zinc-400 absolute left-3 top-1/2 -translate-y-1/2" />
+                    <input
+                      type="text"
+                      placeholder="Buscar por cliente, @telegram, UTM..."
+                      value={orderSearch}
+                      onChange={(e) => setOrderSearch(e.target.value)}
+                      className="bg-zinc-950 border border-zinc-800 rounded-xl pl-9 pr-3 py-1.5 text-xs text-white placeholder-zinc-500 focus:outline-none focus:border-emerald-500 transition-colors w-48 lg:w-64"
+                    />
+                  </div>
+
+                  <div className="flex items-center gap-1 bg-zinc-950 p-1 rounded-xl border border-zinc-800 text-xs">
+                    <button
+                      onClick={() => setOrderStatusFilter("all")}
+                      className={`px-2.5 py-1 rounded-lg text-[11px] font-bold transition-colors cursor-pointer ${
+                        orderStatusFilter === "all" ? "bg-zinc-800 text-white" : "text-zinc-400 hover:text-white"
+                      }`}
+                    >
+                      Todos
+                    </button>
+                    <button
+                      onClick={() => setOrderStatusFilter("paid")}
+                      className={`px-2.5 py-1 rounded-lg text-[11px] font-bold transition-colors cursor-pointer ${
+                        orderStatusFilter === "paid" ? "bg-emerald-500/20 text-emerald-400" : "text-zinc-400 hover:text-white"
+                      }`}
+                    >
+                      Pagos 🟢
+                    </button>
+                    <button
+                      onClick={() => setOrderStatusFilter("pending")}
+                      className={`px-2.5 py-1 rounded-lg text-[11px] font-bold transition-colors cursor-pointer ${
+                        orderStatusFilter === "pending" ? "bg-amber-500/20 text-amber-400" : "text-zinc-400 hover:text-white"
+                      }`}
+                    >
+                      Aguardando 🟡
+                    </button>
+                  </div>
+                </div>
+              </div>
+
+              {/* Lista de Pedidos */}
+              {filteredOrdersList.length > 0 ? (
+                <div className="overflow-x-auto">
+                  <table className="w-full text-left text-xs">
+                    <thead>
+                      <tr className="border-b border-zinc-800 text-zinc-400 uppercase text-[10px] tracking-wider font-semibold">
+                        <th className="py-3 px-3">Status</th>
+                        <th className="py-3 px-3">Data / Hora</th>
+                        <th className="py-3 px-3">Valor</th>
+                        <th className="py-3 px-3">Cliente / Telegram</th>
+                        <th className="py-3 px-3">Produto</th>
+                        <th className="py-3 px-3">Origem (UTM)</th>
+                        <th className="py-3 px-3 text-right">Payload</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-zinc-800/60 font-mono">
+                      {filteredOrdersList.map((order) => {
+                        const oDate = new Date(order.createdAt);
+                        const formattedTime = oDate.toLocaleString("pt-BR", {
+                          day: "2-digit",
+                          month: "2-digit",
+                          hour: "2-digit",
+                          minute: "2-digit",
+                          second: "2-digit",
+                        });
+
+                        const isPaid = order.status === "paid";
+                        const isPending = order.status === "pending";
+
+                        return (
+                          <tr key={order.id} className="hover:bg-zinc-800/40 transition-colors">
+                            {/* Status */}
+                            <td className="py-3 px-3 whitespace-nowrap">
+                              {isPaid ? (
+                                <span className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full bg-emerald-500/20 text-emerald-400 border border-emerald-500/30 font-bold text-[10px]">
+                                  <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
+                                  PIX Pago
+                                </span>
+                              ) : isPending ? (
+                                <span className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full bg-amber-500/20 text-amber-400 border border-amber-500/30 font-bold text-[10px]">
+                                  <Clock className="w-2.5 h-2.5" />
+                                  PIX Gerado
+                                </span>
+                              ) : (
+                                <span className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full bg-zinc-700/40 text-zinc-400 border border-zinc-700 font-bold text-[10px]">
+                                  {order.status}
+                                </span>
+                              )}
+                            </td>
+
+                            {/* Data/Hora */}
+                            <td className="py-3 px-3 text-zinc-300 whitespace-nowrap font-sans text-xs">
+                              {formattedTime}
+                            </td>
+
+                            {/* Valor */}
+                            <td className="py-3 px-3 whitespace-nowrap">
+                              <span className={`font-extrabold ${isPaid ? "text-emerald-400 text-sm" : "text-zinc-300"}`}>
+                                R$ {order.amount.toFixed(2)}
+                              </span>
+                            </td>
+
+                            {/* Cliente / Telegram */}
+                            <td className="py-3 px-3 font-sans">
+                              <div className="space-y-0.5">
+                                <div className="font-semibold text-white text-xs">
+                                  {order.customerName || "Cliente"}
+                                </div>
+                                {order.telegramUsername ? (
+                                  <a
+                                    href={`https://t.me/${order.telegramUsername}`}
+                                    target="_blank"
+                                    rel="noopener noreferrer"
+                                    className="text-[11px] text-blue-400 hover:underline flex items-center gap-1"
+                                  >
+                                    @{order.telegramUsername}
+                                    <ExternalLink className="w-2.5 h-2.5" />
+                                  </a>
+                                ) : order.telegramId ? (
+                                  <div className="text-[10px] text-zinc-500">ID: {order.telegramId}</div>
+                                ) : null}
+                              </div>
+                            </td>
+
+                            {/* Produto */}
+                            <td className="py-3 px-3 font-sans text-zinc-300 text-xs">
+                              {order.productName || "VIP Marcinha"}
+                            </td>
+
+                            {/* UTM */}
+                            <td className="py-3 px-3">
+                              <div className="flex flex-col gap-1">
+                                <span className="px-2 py-0.5 rounded bg-zinc-800 text-zinc-200 text-[10px] w-fit font-bold uppercase">
+                                  {order.utm_source || "direto"}
+                                </span>
+                                {order.utm_campaign && (
+                                  <span className="text-[10px] text-zinc-400 font-sans truncate max-w-[140px]">
+                                    {order.utm_campaign}
+                                  </span>
+                                )}
+                              </div>
+                            </td>
+
+                            {/* Ações / Ver Payload */}
+                            <td className="py-3 px-3 text-right">
+                              <button
+                                onClick={() => setSelectedPayload(order.rawPayload || {})}
+                                className="px-2.5 py-1 rounded-lg bg-zinc-800 hover:bg-zinc-700 text-zinc-300 hover:text-white text-[11px] font-sans font-semibold border border-zinc-700 transition-colors cursor-pointer"
+                              >
+                                Ver JSON
+                              </button>
+                            </td>
+                          </tr>
+                        );
+                      })}
+                    </tbody>
+                  </table>
+                </div>
+              ) : (
+                <div className="py-12 text-center space-y-3">
+                  <div className="w-12 h-12 rounded-2xl bg-zinc-800 text-zinc-500 flex items-center justify-center mx-auto">
+                    <DollarSign className="w-6 h-6" />
+                  </div>
+                  <div className="space-y-1">
+                    <p className="text-sm font-semibold text-zinc-300">Nenhum evento registrado ainda</p>
+                    <p className="text-xs text-zinc-500 max-w-sm mx-auto">
+                      Use o botão <strong className="text-emerald-400">"Testar PIX Pago"</strong> acima para simular uma venda instantaneamente, ou envie um PIX real pelo FireBot.
+                    </p>
+                  </div>
+                </div>
+              )}
             </div>
           </div>
         )}
@@ -1890,6 +2521,47 @@ export default function AdminPage() {
               >
                 Limpar Todas as Estatísticas
               </button>
+            </div>
+          </div>
+        )}
+
+        {/* Modal de Inspeção de JSON / Payload do Webhook */}
+        {selectedPayload && (
+          <div className="fixed inset-0 z-50 bg-black/80 backdrop-blur-sm flex items-center justify-center p-4">
+            <div className="bg-zinc-900 border border-zinc-800 rounded-3xl max-w-2xl w-full p-6 space-y-4 shadow-2xl relative max-h-[85vh] flex flex-col">
+              <div className="flex items-center justify-between pb-3 border-b border-zinc-800">
+                <div className="flex items-center gap-2">
+                  <Code className="w-4 h-4 text-emerald-400" />
+                  <h3 className="text-sm font-bold text-white">Payload Bruto do Webhook (JSON)</h3>
+                </div>
+                <button
+                  onClick={() => setSelectedPayload(null)}
+                  className="p-1 rounded-lg bg-zinc-800 hover:bg-zinc-700 text-zinc-400 hover:text-white transition-colors cursor-pointer"
+                >
+                  ✕
+                </button>
+              </div>
+
+              <div className="flex-1 overflow-auto bg-zinc-950 p-4 rounded-2xl border border-zinc-800/80 font-mono text-xs text-emerald-400">
+                <pre>{JSON.stringify(selectedPayload, null, 2)}</pre>
+              </div>
+
+              <div className="flex justify-between items-center pt-2">
+                <button
+                  onClick={() => copyToClipboard(JSON.stringify(selectedPayload, null, 2), "JSON")}
+                  className="px-4 py-2 rounded-xl bg-zinc-800 hover:bg-zinc-700 text-white text-xs font-bold flex items-center gap-1.5 transition-colors cursor-pointer"
+                >
+                  <Copy className="w-3.5 h-3.5" />
+                  <span>Copiar JSON</span>
+                </button>
+
+                <button
+                  onClick={() => setSelectedPayload(null)}
+                  className="px-4 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-bold transition-colors cursor-pointer"
+                >
+                  Fechar
+                </button>
+              </div>
             </div>
           </div>
         )}

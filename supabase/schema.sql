@@ -113,6 +113,47 @@ CREATE POLICY "Acesso total lp_visits"
   WITH CHECK (true);
 
 -- ================================================================
+-- TABELA DE VENDAS & WEBHOOKS (FIREBOT / PIX GERADO & PAGO)
+-- ================================================================
+CREATE TABLE IF NOT EXISTS public.lp_orders (
+  id text PRIMARY KEY,
+  platform text NOT NULL DEFAULT 'firebot',
+  event text NOT NULL,
+  status text NOT NULL DEFAULT 'pending', -- 'paid', 'pending', 'expired', 'refunded'
+  amount numeric(10,2) NOT NULL DEFAULT 0.00,
+  customer_name text DEFAULT '',
+  customer_email text DEFAULT '',
+  customer_phone text DEFAULT '',
+  telegram_id text DEFAULT '',
+  telegram_username text DEFAULT '',
+  product_name text DEFAULT 'Acesso VIP',
+  utm_source text DEFAULT 'direto',
+  utm_medium text DEFAULT 'nenhum',
+  utm_campaign text DEFAULT 'geral',
+  utm_content text DEFAULT '',
+  utm_term text DEFAULT '',
+  src text DEFAULT '',
+  sck text DEFAULT '',
+  raw_payload jsonb NOT NULL DEFAULT '{}'::jsonb,
+  created_at timestamptz NOT NULL DEFAULT now(),
+  updated_at timestamptz NOT NULL DEFAULT now()
+);
+
+-- Índices de consulta de vendas
+CREATE INDEX IF NOT EXISTS idx_lp_orders_status ON public.lp_orders (status);
+CREATE INDEX IF NOT EXISTS idx_lp_orders_event ON public.lp_orders (event);
+CREATE INDEX IF NOT EXISTS idx_lp_orders_created_at ON public.lp_orders (created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_lp_orders_utm_source ON public.lp_orders (utm_source);
+CREATE INDEX IF NOT EXISTS idx_lp_orders_telegram_id ON public.lp_orders (telegram_id);
+
+ALTER TABLE public.lp_orders ENABLE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS "Acesso total lp_orders" ON public.lp_orders;
+CREATE POLICY "Acesso total lp_orders"
+  ON public.lp_orders FOR ALL
+  USING (true)
+  WITH CHECK (true);
+
+-- ================================================================
 -- STORAGE BUCKET PARA FOTOS DA MODELO
 -- ================================================================
 INSERT INTO storage.buckets (id, name, public)

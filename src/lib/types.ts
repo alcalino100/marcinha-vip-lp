@@ -62,7 +62,49 @@ export interface BrazilStateStat {
   cr: number;
 }
 
+export type OrderStatus = "paid" | "pending" | "expired" | "refunded";
+
+export interface OrderEvent {
+  id: string;
+  platform: string; // 'firebot' ou outra
+  event: string; // 'pix_created', 'pix_paid', etc.
+  status: OrderStatus; // 'paid', 'pending', 'expired', 'refunded'
+  amount: number; // Valor em reais (R$)
+  customerName?: string;
+  customerEmail?: string;
+  customerPhone?: string;
+  telegramId?: string;
+  telegramUsername?: string;
+  productName?: string;
+  utm_source?: string;
+  utm_medium?: string;
+  utm_campaign?: string;
+  utm_content?: string;
+  utm_term?: string;
+  src?: string;
+  sck?: string;
+  rawPayload?: Record<string, any>;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface OrdersSummary {
+  totalRevenue: number;
+  totalOrders: number;
+  paidOrders: number;
+  pendingOrders: number;
+  expiredOrders: number;
+  refundedOrders: number;
+  conversionRate: number; // (% PIX pagos / PIX gerados)
+  averageTicket: number;
+  recentOrders: OrderEvent[];
+  topSources: Array<{ source: string; orders: number; paid: number; revenue: number; cr: number }>;
+  topCampaigns: Array<{ campaign: string; orders: number; paid: number; revenue: number; cr: number }>;
+  lastEventAt?: string;
+}
+
 export interface DatabaseSchema {
   config: LandingConfig;
   visits: VisitEvent[];
+  orders: OrderEvent[];
 }
