@@ -3,7 +3,17 @@
 import { useEffect, useState } from "react";
 import Image from "next/image";
 import Script from "next/script";
-import { Send, ShieldCheck, ExternalLink } from "lucide-react";
+import {
+  Send,
+  ShieldCheck,
+  ExternalLink,
+  Flame,
+  Lock,
+  Heart,
+  Zap,
+  Star,
+  Users,
+} from "lucide-react";
 import type { LandingConfig } from "@/lib/types";
 
 export default function MobileLandingPage() {
@@ -78,13 +88,11 @@ export default function MobileLandingPage() {
     // Dispara eventos de Pixel se configurados
     try {
       if (typeof window !== "undefined") {
-        // Facebook Pixel
         // @ts-ignore
         if (window.fbq) {
           // @ts-ignore
           window.fbq("track", "Lead");
         }
-        // TikTok Pixel
         // @ts-ignore
         if (window.ttq) {
           // @ts-ignore
@@ -107,7 +115,7 @@ export default function MobileLandingPage() {
         });
       }
     } catch (e) {
-      console.error("Erro ao registrar beacon de clique:", e);
+      console.error("Erro ao registrar clique:", e);
     }
 
     // Repasse de UTMs para o Telegram
@@ -140,10 +148,33 @@ export default function MobileLandingPage() {
   const buttonBg = config?.buttonBgColor || "#229ED9";
   const buttonTextColor = config?.buttonTextColor || "#ffffff";
   const buttonGlow = config?.buttonGlow !== false;
+  const ctaIcon = config?.ctaIcon || "telegram";
+  const overlayStyle = config?.overlayStyle || "cinematic";
+  const footerDisclaimer = config?.footerDisclaimer || "Acesso direto e verificado • +18";
+  const showFooterDisclaimer = config?.showFooterDisclaimer !== false;
+
+  // Renderizador do ícone dinâmico do CTA
+  const renderCtaIcon = () => {
+    switch (ctaIcon) {
+      case "fire":
+        return <Flame className="w-5 h-5 text-amber-300 fill-amber-400 shrink-0" />;
+      case "lock":
+        return <Lock className="w-5 h-5 text-white shrink-0" />;
+      case "heart":
+        return <Heart className="w-5 h-5 text-rose-300 fill-rose-400 shrink-0" />;
+      case "bolt":
+        return <Zap className="w-5 h-5 text-amber-300 fill-amber-300 shrink-0" />;
+      case "star":
+        return <Star className="w-5 h-5 text-amber-300 fill-amber-300 shrink-0" />;
+      case "telegram":
+      default:
+        return <Send className="w-5 h-5 text-white fill-white/80 shrink-0" />;
+    }
+  };
 
   return (
     <>
-      {/* Facebook Pixel se configurado */}
+      {/* Facebook Pixel */}
       {config?.facebookPixelId && (
         <Script id="facebook-pixel" strategy="afterInteractive">
           {`
@@ -161,7 +192,7 @@ export default function MobileLandingPage() {
         </Script>
       )}
 
-      {/* TikTok Pixel se configurado */}
+      {/* TikTok Pixel */}
       {config?.tiktokPixelId && (
         <Script id="tiktok-pixel" strategy="afterInteractive">
           {`
@@ -189,30 +220,59 @@ export default function MobileLandingPage() {
               className="object-cover object-top select-none pointer-events-none"
             />
             
-            {/* Vinheta e degradê cinematográfico */}
-            <div className="absolute inset-0 bg-gradient-to-t from-black via-black/35 to-black/30 pointer-events-none" />
-            <div className="absolute inset-x-0 bottom-0 h-3/5 bg-gradient-to-t from-black via-black/85 to-transparent pointer-events-none" />
+            {/* Efeitos de Degradê e Vinheta Customizáveis */}
+            {overlayStyle === "heavy" ? (
+              <>
+                <div className="absolute inset-0 bg-black/45 pointer-events-none" />
+                <div className="absolute inset-x-0 bottom-0 h-4/5 bg-gradient-to-t from-black via-black/90 to-transparent pointer-events-none" />
+              </>
+            ) : overlayStyle === "clean" ? (
+              <div className="absolute inset-x-0 bottom-0 h-2/5 bg-gradient-to-t from-black/85 to-transparent pointer-events-none" />
+            ) : (
+              <>
+                <div className="absolute inset-0 bg-gradient-to-t from-black via-black/35 to-black/30 pointer-events-none" />
+                <div className="absolute inset-x-0 bottom-0 h-3/5 bg-gradient-to-t from-black via-black/85 to-transparent pointer-events-none" />
+              </>
+            )}
           </div>
 
-          {/* Topo: Apenas Badge de status (sem nenhum botão de admin público) */}
+          {/* Topo: Badges de Status, Prova Social e Hook de Conversão */}
           <header
-            className="relative z-10 pt-4 px-4 flex items-center justify-start"
+            className="relative z-10 pt-4 px-4 flex flex-col gap-2.5"
             style={{ paddingTop: "calc(var(--safe-top) + 1rem)" }}
           >
-            {showBadge && (
-              <div className="inline-flex items-center gap-2 px-3 py-1.5 rounded-full bg-black/65 backdrop-blur-md border border-white/20 text-xs font-semibold text-white shadow-xl animate-pulse">
-                <span className="w-2 h-2 rounded-full bg-emerald-400 shadow-[0_0_8px_#34d399]" />
-                <span>{badgeText}</span>
+            <div className="flex items-center justify-between gap-2">
+              {showBadge && (
+                <div className="inline-flex items-center gap-2 px-3 py-1.5 rounded-full bg-black/65 backdrop-blur-md border border-white/20 text-xs font-semibold text-white shadow-xl animate-pulse">
+                  <span className="w-2 h-2 rounded-full bg-emerald-400 shadow-[0_0_8px_#34d399]" />
+                  <span>{badgeText}</span>
+                </div>
+              )}
+
+              {config?.showUrgencyBadge && config?.urgencyBadge && (
+                <div className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-black/70 backdrop-blur-md border border-amber-500/40 text-[11px] font-bold text-amber-300 shadow-xl">
+                  <Users className="w-3.5 h-3.5 text-amber-400" />
+                  <span>{config.urgencyBadge}</span>
+                </div>
+              )}
+            </div>
+
+            {/* Hook / Copy Principal Superior Opcional */}
+            {config?.showHookHeadline && config?.hookHeadline && (
+              <div className="w-full bg-black/65 backdrop-blur-md border border-white/20 p-3 rounded-2xl shadow-2xl text-center animate-fade-in">
+                <p className="text-xs sm:text-sm font-black text-white leading-snug drop-shadow-md">
+                  {config.hookHeadline}
+                </p>
               </div>
             )}
           </header>
 
-          {/* Rodapé: Botão Único com Máxima Atenção e Conversão */}
+          {/* Rodapé: Botão de Conversão, Subtítulo e Selo */}
           <footer
             className="relative z-10 w-full px-5 pb-6 flex flex-col items-center gap-3"
             style={{ paddingBottom: "calc(var(--safe-bottom) + 1.5rem)" }}
           >
-            {/* Botão de Alta Conversão "Acessar agora" */}
+            {/* Botão de Alta Conversão com Ícone Customizado */}
             <button
               onClick={handleCtaClick}
               disabled={isRedirecting}
@@ -235,10 +295,10 @@ export default function MobileLandingPage() {
                 <div className="w-full h-full shimmer-effect opacity-60" />
               </div>
 
-              {/* Ícone sutil do Telegram */}
-              <Send className="w-5 h-5 text-white fill-white/80 shrink-0" />
+              {/* Ícone dinâmico */}
+              {renderCtaIcon()}
 
-              <span className="relative z-10 drop-shadow-sm font-semibold">
+              <span className="relative z-10 drop-shadow-sm font-semibold truncate">
                 {isRedirecting ? "Abrindo..." : buttonText}
               </span>
 
@@ -246,18 +306,20 @@ export default function MobileLandingPage() {
               <ExternalLink className="w-4 h-4 opacity-75 shrink-0 ml-auto" />
             </button>
 
-            {/* Subtítulo opcional */}
+            {/* Subtítulo do botão opcional */}
             {showButtonSubtext && buttonSubtext && (
               <p className="text-xs text-zinc-300 font-medium text-center drop-shadow">
                 {buttonSubtext}
               </p>
             )}
 
-            {/* Selo de segurança e confiança */}
-            <div className="flex items-center gap-1.5 text-[11px] text-zinc-400 font-normal">
-              <ShieldCheck className="w-3.5 h-3.5 text-emerald-400" />
-              <span>Acesso direto e verificado</span>
-            </div>
+            {/* Selo de segurança / Disclaimer configurável */}
+            {showFooterDisclaimer && (
+              <div className="flex items-center gap-1.5 text-[11px] text-zinc-400 font-normal">
+                <ShieldCheck className="w-3.5 h-3.5 text-emerald-400" />
+                <span>{footerDisclaimer}</span>
+              </div>
+            )}
           </footer>
         </div>
       </main>

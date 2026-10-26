@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect } from "react";
 import Image from "next/image";
 import {
   Users,
@@ -30,12 +30,18 @@ import {
   Copy,
   DollarSign,
   Activity,
-  Layers,
-  ChevronRight,
+  MapPin,
+  Flame,
+  Zap,
+  Heart,
+  Star,
+  Trash2,
   Search,
+  Check,
 } from "lucide-react";
 import { toast } from "sonner";
 import type { LandingConfig, VisitEvent } from "@/lib/types";
+import BrazilMap from "@/components/BrazilMap";
 
 interface StatsData {
   period: string;
@@ -49,6 +55,8 @@ interface StatsData {
   os: Record<string, number>;
   browsers: Record<string, number>;
   topLocations: Array<{ location: string; count: number }>;
+  brazilStateMap?: Record<string, { visits: number; clicks: number }>;
+  brazilStates?: Array<{ uf: string; name: string; visits: number; clicks: number; cr: number }>;
   hourly: {
     labels: string[];
     visits: number[];
@@ -75,10 +83,10 @@ export default function AdminPage() {
   // Filtros do Feed de Visitantes
   const [searchLog, setSearchLog] = useState("");
   const [statusFilter, setStatusFilter] = useState<"all" | "clicked" | "viewed">("all");
-  const [deviceFilter, setDeviceFilter] = useState<string>("all");
+  const [selectedUf, setSelectedUf] = useState<string>("");
 
   // Auto-refresh (Tempo Real)
-  const [autoRefreshInterval, setAutoRefreshInterval] = useState<number>(15); // 15 segundos padrão
+  const [autoRefreshInterval, setAutoRefreshInterval] = useState<number>(15);
   const [lastRefreshedAt, setLastRefreshedAt] = useState<Date>(new Date());
 
   // Upload
@@ -93,7 +101,7 @@ export default function AdminPage() {
     error?: string;
   } | null>(null);
 
-  // Calculadora de ROI Estimado
+  // Calculadora de ROI
   const [ticketPrice, setTicketPrice] = useState<number>(29.9);
   const [conversionToSaleRate, setConversionToSaleRate] = useState<number>(5.0);
 
@@ -110,7 +118,6 @@ export default function AdminPage() {
       setAdminToken(savedToken);
       setIsAuthenticated(true);
     } else {
-      // Tenta recuperar do cookie
       const match = document.cookie.match(new RegExp("(^| )marcinha_admin_session=([^;]+)"));
       if (match && match[2]) {
         setAdminToken(match[2]);
@@ -212,7 +219,6 @@ export default function AdminPage() {
       if (res.ok && data.success) {
         setAdminToken(data.token);
         localStorage.setItem("marcinha_admin_token", data.token);
-        // Grava cookie para backup de sessão
         document.cookie = `marcinha_admin_session=${data.token}; path=/; max-age=2592000; SameSite=Lax`;
         setIsAuthenticated(true);
         toast.success("Autenticado com sucesso!");
@@ -275,7 +281,20 @@ export default function AdminPage() {
       const data = await res.json();
 
       if (res.ok && data.url) {
-        setConfig((prev) => (prev ? { ...prev, photoUrl: data.url } : null));
+        setConfig((prev) => {
+          if (!prev) return null;
+          const currentPhotos = prev.savedPhotos || [];
+          const updatedPhotos = currentPhotos.includes(data.url)
+            ? currentPhotos
+            : [data.url, ...currentPhotos];
+
+          return {
+            ...prev,
+            photoUrl: data.url,
+            savedPhotos: updatedPhotos,
+          };
+        });
+
         toast.success(
           data.storage === "supabase"
             ? "Foto enviada direto para o Supabase Storage com sucesso!"
@@ -292,7 +311,7 @@ export default function AdminPage() {
   };
 
   const handleResetStats = async () => {
-    if (!confirm("Tem certeza que deseja zerar TODAS as estatísticas de visitas e cliques? Essa ação é irreversível.")) {
+    if (!confirm("Tem certeza que deseja zerar TODAS as estatísticas de visitas e cliques?")) {
       return;
     }
 
@@ -313,7 +332,7 @@ export default function AdminPage() {
 
   const copyToClipboard = (text: string, label: string) => {
     navigator.clipboard.writeText(text);
-    toast.success(`${label} copiado para a área de transferência!`);
+    toast.success(`${label} copiado!`);
   };
 
   const exportCSV = () => {
@@ -385,11 +404,28 @@ export default function AdminPage() {
     { name: "Dark Luxury", bg: "#18181b", text: "#ffffff" },
   ];
 
+  // Presets de Hooks de Teste
+  const hookPresets = [
+    "Ela está te esperando no Telegram... 🔞",
+    "Você foi convidado para o VIP Oficial ✨",
+    "Apenas hoje: acesso liberado com prévia exclusiva 🔥",
+    "Acesso direto ao chat privado com fotos diárias 🟢",
+  ];
+
+  // Presets de Botão CTA
+  const ctaPresets = [
+    "Acessar agora",
+    "Quero entrar no VIP 🔥",
+    "Ver fotos exclusivas 🔞",
+    "Conversar com ela no Telegram 💬",
+    "Acessar canal VIP grátis 🎁",
+  ];
+
   // Filtra logs de visitas com busca e tags
   const filteredLogs = stats?.recentVisits?.filter((v) => {
     if (statusFilter === "clicked" && !v.clicked) return false;
     if (statusFilter === "viewed" && v.clicked) return false;
-    if (deviceFilter !== "all" && v.device !== deviceFilter) return false;
+    if (selectedUf && v.region !== selectedUf) return false;
 
     if (!searchLog) return true;
     const term = searchLog.toLowerCase();
@@ -398,6 +434,7 @@ export default function AdminPage() {
       v.utm_campaign.toLowerCase().includes(term) ||
       (v.utm_content && v.utm_content.toLowerCase().includes(term)) ||
       v.city.toLowerCase().includes(term) ||
+      v.region.toLowerCase().includes(term) ||
       v.device.toLowerCase().includes(term) ||
       v.browser.toLowerCase().includes(term) ||
       v.ip.includes(term)
@@ -476,7 +513,7 @@ export default function AdminPage() {
                 </span>
               )}
             </div>
-            <p className="text-[11px] text-zinc-400">Controle de Conversão & Mídia Paga</p>
+            <p className="text-[11px] text-zinc-400">Controle de Conversão, Testes de Copy & Mídia</p>
           </div>
         </div>
 
@@ -485,7 +522,7 @@ export default function AdminPage() {
           {/* Indicador de Auto-refresh */}
           <div className="hidden sm:flex items-center gap-1.5 bg-zinc-950 px-3 py-1.5 rounded-xl border border-zinc-800 text-xs">
             <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />
-            <span className="text-zinc-400 text-[11px]">Tempo Real:</span>
+            <span className="text-zinc-400 text-[11px]">Ao Vivo:</span>
             <select
               value={autoRefreshInterval}
               onChange={(e) => setAutoRefreshInterval(Number(e.target.value))}
@@ -537,7 +574,19 @@ export default function AdminPage() {
           }`}
         >
           <TrendingUp className="w-4 h-4" />
-          Métricas & Tráfego
+          Métricas & Mapa Brasil
+        </button>
+
+        <button
+          onClick={() => setActiveTab("editor")}
+          className={`py-3.5 text-xs lg:text-sm font-bold flex items-center gap-2 border-b-2 transition-all whitespace-nowrap cursor-pointer ${
+            activeTab === "editor"
+              ? "border-blue-500 text-blue-400"
+              : "border-transparent text-zinc-400 hover:text-zinc-200"
+          }`}
+        >
+          <Palette className="w-4 h-4" />
+          Editor de Copys, Hooks & Fotos
         </button>
 
         <button
@@ -570,18 +619,6 @@ export default function AdminPage() {
         </button>
 
         <button
-          onClick={() => setActiveTab("editor")}
-          className={`py-3.5 text-xs lg:text-sm font-bold flex items-center gap-2 border-b-2 transition-all whitespace-nowrap cursor-pointer ${
-            activeTab === "editor"
-              ? "border-blue-500 text-blue-400"
-              : "border-transparent text-zinc-400 hover:text-zinc-200"
-          }`}
-        >
-          <Palette className="w-4 h-4" />
-          Personalizar Página & Visual
-        </button>
-
-        <button
           onClick={() => setActiveTab("settings")}
           className={`py-3.5 text-xs lg:text-sm font-bold flex items-center gap-2 border-b-2 transition-all whitespace-nowrap cursor-pointer ${
             activeTab === "settings"
@@ -596,7 +633,7 @@ export default function AdminPage() {
 
       {/* Conteúdo Principal */}
       <main className="flex-1 p-4 lg:p-8 max-w-7xl w-full mx-auto">
-        {/* ================= ABA 1: MÉTRICAS & TRÁFEGO ================= */}
+        {/* ================= ABA 1: MÉTRICAS & MAPA BRASIL ================= */}
         {activeTab === "stats" && (
           <div className="space-y-6">
             {/* Barra de Filtro de Período & Ações */}
@@ -665,7 +702,7 @@ export default function AdminPage() {
                 <div className="text-2xl lg:text-3xl font-black text-purple-400">
                   {stats?.conversionRate ?? 0}%
                 </div>
-                <p className="text-xs text-zinc-500 mt-1">Taxa de Cliques / Visitas (CTR)</p>
+                <p className="text-xs text-zinc-500 mt-1">Cliques / Visitas (CTR Real)</p>
               </div>
 
               <div className="bg-zinc-900 border border-zinc-800 rounded-3xl p-5 shadow-sm relative overflow-hidden">
@@ -680,6 +717,107 @@ export default function AdminPage() {
                   %
                 </div>
                 <p className="text-xs text-zinc-500 mt-1">Usuários em Smartphones</p>
+              </div>
+            </div>
+
+            {/* SEÇÃO: MAPA VISUAL DO BRASIL DE ACESSOS */}
+            <div className="bg-zinc-900 border border-zinc-800 rounded-3xl p-6 shadow-sm space-y-4">
+              <div className="flex flex-wrap items-center justify-between gap-4">
+                <div>
+                  <h3 className="text-base font-bold text-white flex items-center gap-2">
+                    <MapPin className="w-4 h-4 text-emerald-400" />
+                    Mapa do Brasil: Onde Estão Seus Acessos & Conversões
+                  </h3>
+                  <p className="text-xs text-zinc-400 mt-0.5">
+                    Visualização interativa por estado. Clique no estado para filtrar o feed de visitantes.
+                  </p>
+                </div>
+
+                {selectedUf && (
+                  <button
+                    onClick={() => {
+                      setSelectedUf("");
+                      setSearchLog("");
+                    }}
+                    className="px-3 py-1 rounded-xl bg-zinc-800 hover:bg-zinc-700 text-xs font-semibold text-zinc-300 border border-zinc-700 transition-colors"
+                  >
+                    Limpar Filtro ({selectedUf}) ✕
+                  </button>
+                )}
+              </div>
+
+              <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-center pt-2">
+                {/* Mapa SVG */}
+                <div className="lg:col-span-7 flex justify-center">
+                  <BrazilMap
+                    stateData={stats?.brazilStateMap || {}}
+                    onSelectState={(uf) => {
+                      const next = uf === selectedUf ? "" : uf;
+                      setSelectedUf(next);
+                      setSearchLog(next);
+                    }}
+                    selectedUf={selectedUf}
+                  />
+                </div>
+
+                {/* Ranking de Estados */}
+                <div className="lg:col-span-5 space-y-3">
+                  <h4 className="text-xs font-bold uppercase tracking-wider text-zinc-300 flex items-center gap-2">
+                    <span>🏆 Ranking de Estados</span>
+                    <span className="text-[10px] text-zinc-500 font-normal">(Mais Acessados)</span>
+                  </h4>
+
+                  <div className="space-y-2 max-h-[480px] overflow-y-auto pr-1">
+                    {stats?.brazilStates?.length ? (
+                      stats.brazilStates.map((st, i) => {
+                        const maxV = stats.totalVisits || 1;
+                        const pct = Math.round((st.visits / maxV) * 100);
+                        const isSelected = selectedUf === st.uf;
+
+                        return (
+                          <div
+                            key={st.uf}
+                            onClick={() => {
+                              const next = isSelected ? "" : st.uf;
+                              setSelectedUf(next);
+                              setSearchLog(next);
+                            }}
+                            className={`p-3 rounded-2xl border transition-all cursor-pointer ${
+                              isSelected
+                                ? "bg-blue-950/40 border-blue-500 shadow-md shadow-blue-500/20"
+                                : "bg-zinc-950 border-zinc-800/80 hover:border-zinc-700"
+                            }`}
+                          >
+                            <div className="flex items-center justify-between text-xs mb-1.5">
+                              <div className="flex items-center gap-2 font-bold text-white">
+                                <span className="w-5 h-5 rounded-full bg-zinc-800 text-[10px] flex items-center justify-center font-mono text-zinc-400">
+                                  {i + 1}
+                                </span>
+                                <span>{st.name} ({st.uf})</span>
+                              </div>
+                              <div className="flex items-center gap-3 font-mono text-[11px]">
+                                <span className="text-zinc-300"><b>{st.visits}</b> visitas</span>
+                                <span className="text-emerald-400 font-bold"><b>{st.clicks}</b> cliques</span>
+                                <span className="text-purple-400 font-black">{st.cr}% CR</span>
+                              </div>
+                            </div>
+
+                            <div className="w-full h-1.5 bg-zinc-800 rounded-full overflow-hidden">
+                              <div
+                                className="h-full bg-gradient-to-r from-blue-500 to-indigo-500 rounded-full"
+                                style={{ width: `${Math.max(pct, 5)}%` }}
+                              />
+                            </div>
+                          </div>
+                        );
+                      })
+                    ) : (
+                      <p className="text-xs text-zinc-500 py-10 text-center">
+                        Nenhum dado de estado registrado ainda no período.
+                      </p>
+                    )}
+                  </div>
+                </div>
               </div>
             </div>
 
@@ -788,7 +926,7 @@ export default function AdminPage() {
                 </div>
               </div>
 
-              {/* Navegadores & In-App (Instagram/TikTok Ads) */}
+              {/* Navegadores & In-App */}
               <div className="bg-zinc-900 border border-zinc-800 rounded-3xl p-6 space-y-4">
                 <div className="flex items-center justify-between">
                   <h3 className="text-sm font-bold text-white flex items-center gap-2">
@@ -821,10 +959,10 @@ export default function AdminPage() {
                   )}
                 </div>
 
-                {/* Top Localizações */}
+                {/* Top Cidades */}
                 <div className="pt-4 border-t border-zinc-800">
                   <h4 className="text-xs font-bold text-zinc-300 uppercase tracking-wider mb-2.5">
-                    Top Cidades & Regiões
+                    Top Cidades com Mais Visitas
                   </h4>
                   <div className="flex flex-wrap gap-2">
                     {stats?.topLocations?.length ? (
@@ -844,7 +982,7 @@ export default function AdminPage() {
               </div>
             </div>
 
-            {/* Gráfico de Acessos 24 Horas */}
+            {/* Gráfico 24 Horas */}
             <div className="bg-zinc-900 border border-zinc-800 rounded-3xl p-6">
               <div className="flex items-center justify-between mb-4">
                 <h3 className="text-sm font-bold text-white flex items-center gap-2">
@@ -863,14 +1001,12 @@ export default function AdminPage() {
 
                     return (
                       <div key={idx} className="flex-1 min-w-[20px] flex flex-col items-center gap-1.5 group relative">
-                        {/* Tooltip no hover */}
                         <div className="absolute -top-12 bg-black/90 px-2.5 py-1 rounded-lg border border-zinc-700 text-[10px] text-zinc-200 hidden group-hover:flex flex-col items-center z-30 whitespace-nowrap shadow-xl">
                           <span>{hour}</span>
                           <span className="font-bold text-blue-400">{visitsCount} visitas</span>
                           <span className="font-bold text-emerald-400">{clicksCount} cliques</span>
                         </div>
 
-                        {/* Barra */}
                         <div className="w-full bg-zinc-800 rounded-t-md h-32 flex items-end overflow-hidden">
                           <div
                             className="w-full bg-gradient-to-t from-blue-600 to-indigo-500 rounded-t-md transition-all duration-300"
@@ -887,7 +1023,484 @@ export default function AdminPage() {
           </div>
         )}
 
-        {/* ================= ABA 2: FEED DE VISITANTES & CLICKS ================= */}
+        {/* ================= ABA 2: EDITOR VISUAL DE COPYS, HOOKS & FOTOS ================= */}
+        {activeTab === "editor" && config && (
+          <div className="grid grid-cols-1 lg:grid-cols-12 gap-8 items-start">
+            {/* Formulário de Configuração & Testes de A/B */}
+            <div className="lg:col-span-7 bg-zinc-900 border border-zinc-800 rounded-3xl p-6 space-y-6 shadow-sm">
+              <div className="flex items-center justify-between pb-4 border-b border-zinc-800">
+                <div>
+                  <h2 className="text-lg font-bold text-white">Editor de Copys, Hooks & Visual</h2>
+                  <p className="text-xs text-zinc-400">Teste diferentes abordagens, imagens e chamadas com 1 clique</p>
+                </div>
+
+                <button
+                  onClick={handleSaveConfig}
+                  disabled={saving}
+                  className="flex items-center gap-2 px-5 py-2.5 bg-blue-600 hover:bg-blue-500 text-white rounded-xl text-xs font-bold shadow-lg shadow-blue-600/30 transition-all active:scale-[0.98] cursor-pointer"
+                >
+                  <Save className="w-4 h-4" />
+                  <span>{saving ? "Salvando..." : "Salvar Alterações"}</span>
+                </button>
+              </div>
+
+              {/* 1. SEÇÃO DE FOTOS & GALERIA DE CRIATIVOS */}
+              <div className="space-y-3">
+                <div className="flex items-center justify-between">
+                  <label className="text-xs font-bold uppercase tracking-wider text-zinc-300">
+                    Galeria de Fotos da Modelo (Troca com 1 Clique)
+                  </label>
+                  <span className="text-[11px] text-zinc-500">
+                    {config.savedPhotos?.length || 1} fotos salvas
+                  </span>
+                </div>
+
+                {/* Lista de Miniaturas Salvas */}
+                <div className="flex items-center gap-3 overflow-x-auto pb-2">
+                  {(config.savedPhotos || [config.photoUrl]).map((photoItem, idx) => (
+                    <div
+                      key={idx}
+                      onClick={() => setConfig({ ...config, photoUrl: photoItem })}
+                      className={`relative w-20 h-24 rounded-2xl overflow-hidden border-2 shrink-0 cursor-pointer transition-all ${
+                        config.photoUrl === photoItem
+                          ? "border-blue-500 ring-4 ring-blue-500/20 scale-105"
+                          : "border-zinc-800 opacity-70 hover:opacity-100 hover:border-zinc-600"
+                      }`}
+                    >
+                      <Image
+                        src={photoItem}
+                        alt="Foto da Modelo"
+                        fill
+                        className="object-cover"
+                      />
+                      {config.photoUrl === photoItem && (
+                        <div className="absolute top-1 right-1 bg-blue-500 rounded-full p-0.5 shadow">
+                          <Check className="w-3 h-3 text-white" />
+                        </div>
+                      )}
+                    </div>
+                  ))}
+
+                  {/* Botão de Upload de Mais Fotos */}
+                  <label className="w-20 h-24 rounded-2xl border-2 border-dashed border-zinc-700 hover:border-zinc-500 flex flex-col items-center justify-center gap-1.5 shrink-0 cursor-pointer bg-zinc-950/60 text-zinc-400 hover:text-white transition-colors">
+                    <Upload className="w-5 h-5 text-blue-400" />
+                    <span className="text-[10px] font-bold text-center leading-tight">
+                      {uploading ? "Enviando..." : "+ Enviar Nova"}
+                    </span>
+                    <input
+                      type="file"
+                      accept="image/*"
+                      onChange={handleFileUpload}
+                      disabled={uploading}
+                      className="hidden"
+                    />
+                  </label>
+                </div>
+
+                {/* Estilo de Iluminação / Vinheta */}
+                <div className="pt-2">
+                  <span className="block text-xs text-zinc-400 mb-1.5">Efeito de Vinheta da Foto:</span>
+                  <div className="grid grid-cols-3 gap-2">
+                    {[
+                      { label: "Cinematográfico", value: "cinematic" },
+                      { label: "Foco Intenso", value: "heavy" },
+                      { label: "Fundo Limpo", value: "clean" },
+                    ].map((opt) => (
+                      <button
+                        key={opt.value}
+                        type="button"
+                        onClick={() => setConfig({ ...config, overlayStyle: opt.value as any })}
+                        className={`py-2 px-3 rounded-xl text-xs font-semibold border transition-all cursor-pointer ${
+                          (config.overlayStyle || "cinematic") === opt.value
+                            ? "bg-blue-600 text-white border-blue-500 shadow"
+                            : "bg-zinc-950 text-zinc-400 border-zinc-800 hover:border-zinc-700"
+                        }`}
+                      >
+                        {opt.label}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              </div>
+
+              {/* 2. TESTES DE HOOKS & COPYS (TOPO) */}
+              <div className="space-y-4 pt-4 border-t border-zinc-800">
+                <div className="flex items-center justify-between">
+                  <label className="text-xs font-bold uppercase tracking-wider text-zinc-300">
+                    Hook / Chamada de Atenção Superior
+                  </label>
+                  <label className="flex items-center gap-2 cursor-pointer">
+                    <input
+                      type="checkbox"
+                      checked={config.showHookHeadline}
+                      onChange={(e) => setConfig({ ...config, showHookHeadline: e.target.checked })}
+                      className="w-4 h-4 rounded text-blue-600 bg-zinc-950 border-zinc-700"
+                    />
+                    <span className="text-xs text-zinc-300">Exibir Hook no Topo</span>
+                  </label>
+                </div>
+
+                {config.showHookHeadline && (
+                  <div className="space-y-2 bg-zinc-950/70 p-4 rounded-2xl border border-zinc-800">
+                    <input
+                      type="text"
+                      value={config.hookHeadline || ""}
+                      onChange={(e) => setConfig({ ...config, hookHeadline: e.target.value })}
+                      placeholder="Ex: Ela está te esperando no Telegram... 🔞"
+                      className="w-full px-4 py-2.5 bg-zinc-900 border border-zinc-800 rounded-xl text-sm text-white focus:outline-none focus:ring-2 focus:ring-blue-500 font-semibold"
+                    />
+
+                    <div>
+                      <span className="text-[11px] text-zinc-500 block mb-1.5">Hooks Prontos para Testar:</span>
+                      <div className="flex flex-wrap gap-1.5">
+                        {hookPresets.map((hk, i) => (
+                          <button
+                            key={i}
+                            type="button"
+                            onClick={() => setConfig({ ...config, hookHeadline: hk })}
+                            className="px-2.5 py-1 rounded-lg bg-zinc-900 hover:bg-zinc-800 border border-zinc-800 text-[11px] text-zinc-300 cursor-pointer"
+                          >
+                            {hk}
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+                  </div>
+                )}
+
+                {/* Prova Social & Badges */}
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                  <div className="bg-zinc-950/70 p-3 rounded-2xl border border-zinc-800 space-y-2">
+                    <div className="flex items-center justify-between">
+                      <span className="text-xs font-bold text-zinc-300">Badge de Status</span>
+                      <input
+                        type="checkbox"
+                        checked={config.showBadge}
+                        onChange={(e) => setConfig({ ...config, showBadge: e.target.checked })}
+                        className="w-4 h-4 rounded text-blue-600 bg-zinc-950 border-zinc-700"
+                      />
+                    </div>
+                    <input
+                      type="text"
+                      value={config.badgeText}
+                      onChange={(e) => setConfig({ ...config, badgeText: e.target.value })}
+                      placeholder="Online agora • VIP"
+                      className="w-full px-3 py-1.5 bg-zinc-900 border border-zinc-800 rounded-lg text-xs text-white focus:outline-none font-semibold"
+                    />
+                  </div>
+
+                  <div className="bg-zinc-950/70 p-3 rounded-2xl border border-zinc-800 space-y-2">
+                    <div className="flex items-center justify-between">
+                      <span className="text-xs font-bold text-zinc-300">Urgência / Pessoas Online</span>
+                      <input
+                        type="checkbox"
+                        checked={config.showUrgencyBadge}
+                        onChange={(e) => setConfig({ ...config, showUrgencyBadge: e.target.checked })}
+                        className="w-4 h-4 rounded text-blue-600 bg-zinc-950 border-zinc-700"
+                      />
+                    </div>
+                    <input
+                      type="text"
+                      value={config.urgencyBadge || "🔥 142 pessoas online agora"}
+                      onChange={(e) => setConfig({ ...config, urgencyBadge: e.target.value })}
+                      placeholder="🔥 142 pessoas online agora"
+                      className="w-full px-3 py-1.5 bg-zinc-900 border border-zinc-800 rounded-lg text-xs text-white focus:outline-none font-semibold"
+                    />
+                  </div>
+                </div>
+              </div>
+
+              {/* 3. TESTES DE CTA (BOTÃO DE CONVERSÃO) */}
+              <div className="space-y-4 pt-4 border-t border-zinc-800">
+                <label className="block text-xs font-bold uppercase tracking-wider text-zinc-300">
+                  Botão de Ação (CTA) & Variações de Conversão
+                </label>
+
+                <div>
+                  <label className="block text-xs text-zinc-400 mb-1">Texto Principal do Botão</label>
+                  <input
+                    type="text"
+                    value={config.buttonText}
+                    onChange={(e) => setConfig({ ...config, buttonText: e.target.value })}
+                    placeholder="Acessar agora"
+                    className="w-full px-4 py-2.5 bg-zinc-950 border border-zinc-800 rounded-xl text-sm font-bold text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  />
+                  <div className="flex flex-wrap gap-1.5 mt-2">
+                    {ctaPresets.map((cta, i) => (
+                      <button
+                        key={i}
+                        type="button"
+                        onClick={() => setConfig({ ...config, buttonText: cta })}
+                        className="px-2.5 py-1 rounded-lg bg-zinc-950 hover:bg-zinc-800 border border-zinc-800 text-[11px] text-zinc-300 cursor-pointer"
+                      >
+                        {cta}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+
+                {/* Seletor de Ícone do Botão */}
+                <div>
+                  <span className="block text-xs text-zinc-400 mb-1.5">Ícone do Botão:</span>
+                  <div className="grid grid-cols-3 sm:grid-cols-6 gap-2">
+                    {[
+                      { id: "telegram", label: "Telegram", icon: Send },
+                      { id: "fire", label: "Fogo 🔥", icon: Flame },
+                      { id: "lock", label: "VIP 🔒", icon: Lock },
+                      { id: "heart", label: "Love ❤️", icon: Heart },
+                      { id: "bolt", label: "Raio ⚡", icon: Zap },
+                      { id: "star", label: "Estrela ⭐", icon: Star },
+                    ].map((item) => {
+                      const IconComp = item.icon;
+                      const isSelected = (config.ctaIcon || "telegram") === item.id;
+                      return (
+                        <button
+                          key={item.id}
+                          type="button"
+                          onClick={() => setConfig({ ...config, ctaIcon: item.id as any })}
+                          className={`p-2.5 rounded-xl border flex flex-col items-center gap-1 transition-all cursor-pointer ${
+                            isSelected
+                              ? "bg-blue-600 text-white border-blue-500 shadow-md"
+                              : "bg-zinc-950 text-zinc-400 border-zinc-800 hover:border-zinc-700"
+                          }`}
+                        >
+                          <IconComp className="w-4 h-4" />
+                          <span className="text-[10px] font-semibold">{item.label}</span>
+                        </button>
+                      );
+                    })}
+                  </div>
+                </div>
+
+                {/* Cores do Botão */}
+                <div>
+                  <span className="block text-xs text-zinc-400 mb-2">Paletas de Cores:</span>
+                  <div className="flex flex-wrap gap-2">
+                    {colorPresets.map((preset, idx) => (
+                      <button
+                        key={idx}
+                        type="button"
+                        onClick={() =>
+                          setConfig({
+                            ...config,
+                            buttonBgColor: preset.bg,
+                            buttonTextColor: preset.text,
+                          })
+                        }
+                        className={`px-3 py-1.5 rounded-xl text-xs font-bold border flex items-center gap-2 transition-all cursor-pointer ${
+                          config.buttonBgColor === preset.bg
+                            ? "border-white ring-2 ring-blue-500 scale-105"
+                            : "border-zinc-700 hover:border-zinc-500"
+                        }`}
+                        style={{ backgroundColor: preset.bg, color: preset.text }}
+                      >
+                        <span className="drop-shadow-sm">{preset.name}</span>
+                      </button>
+                    ))}
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-2 gap-4">
+                  <div>
+                    <label className="block text-xs text-zinc-400 mb-1">Cor Hex do Botão</label>
+                    <div className="flex items-center gap-2">
+                      <input
+                        type="color"
+                        value={config.buttonBgColor}
+                        onChange={(e) => setConfig({ ...config, buttonBgColor: e.target.value })}
+                        className="w-10 h-10 rounded-xl border border-zinc-700 cursor-pointer bg-transparent p-0"
+                      />
+                      <input
+                        type="text"
+                        value={config.buttonBgColor}
+                        onChange={(e) => setConfig({ ...config, buttonBgColor: e.target.value })}
+                        className="flex-1 px-3 py-2 bg-zinc-950 border border-zinc-800 rounded-xl text-xs font-mono text-white"
+                      />
+                    </div>
+                  </div>
+
+                  <div>
+                    <label className="block text-xs text-zinc-400 mb-1">Cor do Texto</label>
+                    <div className="flex items-center gap-2">
+                      <input
+                        type="color"
+                        value={config.buttonTextColor}
+                        onChange={(e) => setConfig({ ...config, buttonTextColor: e.target.value })}
+                        className="w-10 h-10 rounded-xl border border-zinc-700 cursor-pointer bg-transparent p-0"
+                      />
+                      <input
+                        type="text"
+                        value={config.buttonTextColor}
+                        onChange={(e) => setConfig({ ...config, buttonTextColor: e.target.value })}
+                        className="flex-1 px-3 py-2 bg-zinc-950 border border-zinc-800 rounded-xl text-xs font-mono text-white"
+                      />
+                    </div>
+                  </div>
+                </div>
+
+                <label className="flex items-center gap-2 cursor-pointer pt-1">
+                  <input
+                    type="checkbox"
+                    checked={config.buttonGlow}
+                    onChange={(e) => setConfig({ ...config, buttonGlow: e.target.checked })}
+                    className="w-4 h-4 rounded text-blue-600 bg-zinc-950 border-zinc-700"
+                  />
+                  <span className="text-xs text-zinc-300">
+                    Ativar animação contínua de pulso e brilho (Glow Effect)
+                  </span>
+                </label>
+              </div>
+
+              {/* 4. LINK DE DESTINO & RODAPÉ */}
+              <div className="space-y-4 pt-4 border-t border-zinc-800">
+                <div className="space-y-2">
+                  <label className="block text-xs font-bold uppercase tracking-wider text-zinc-300">
+                    Link de Destino do Telegram
+                  </label>
+                  <div className="flex gap-2">
+                    <input
+                      type="url"
+                      value={config.telegramUrl}
+                      onChange={(e) => setConfig({ ...config, telegramUrl: e.target.value })}
+                      placeholder="https://t.me/seubot"
+                      className="flex-1 px-4 py-2.5 bg-zinc-950 border border-zinc-800 rounded-xl text-sm text-white focus:outline-none focus:ring-2 focus:ring-blue-500 font-mono"
+                    />
+                    <a
+                      href={config.telegramUrl}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="px-4 py-2.5 rounded-xl bg-zinc-800 hover:bg-zinc-700 text-xs font-semibold text-zinc-300 border border-zinc-700 flex items-center gap-1.5 transition-colors"
+                    >
+                      <span>Testar</span>
+                      <ExternalLink className="w-3.5 h-3.5" />
+                    </a>
+                  </div>
+                </div>
+
+                <div className="bg-zinc-950/70 p-3 rounded-2xl border border-zinc-800 space-y-2">
+                  <div className="flex items-center justify-between">
+                    <span className="text-xs font-bold text-zinc-300">Aviso / Disclaimer do Rodapé</span>
+                    <input
+                      type="checkbox"
+                      checked={config.showFooterDisclaimer}
+                      onChange={(e) => setConfig({ ...config, showFooterDisclaimer: e.target.checked })}
+                      className="w-4 h-4 rounded text-blue-600 bg-zinc-950 border-zinc-700"
+                    />
+                  </div>
+                  <input
+                    type="text"
+                    value={config.footerDisclaimer || "Acesso direto e verificado • +18"}
+                    onChange={(e) => setConfig({ ...config, footerDisclaimer: e.target.value })}
+                    placeholder="Acesso direto e verificado • +18"
+                    className="w-full px-3 py-1.5 bg-zinc-900 border border-zinc-800 rounded-lg text-xs text-white focus:outline-none font-semibold"
+                  />
+                </div>
+              </div>
+            </div>
+
+            {/* Simulador Mobile em Tempo Real */}
+            <div className="lg:col-span-5 flex flex-col items-center">
+              <div className="sticky top-20 w-full max-w-[340px]">
+                <div className="flex items-center justify-between mb-3 px-2">
+                  <span className="text-xs font-bold text-zinc-400 uppercase tracking-wider flex items-center gap-1.5">
+                    <Smartphone className="w-4 h-4 text-blue-400" />
+                    Simulador ao Vivo
+                  </span>
+                  <span className="text-[11px] text-emerald-400 font-medium">● Atualização Instantânea</span>
+                </div>
+
+                {/* Moldura do Smartphone */}
+                <div className="relative w-full aspect-[9/18] max-h-[640px] rounded-[42px] border-[10px] border-zinc-800 bg-black overflow-hidden shadow-2xl ring-1 ring-white/10 flex flex-col justify-between">
+                  <div className="absolute top-2 left-1/2 -translate-x-1/2 w-24 h-5 bg-zinc-900 rounded-full z-30" />
+
+                  {/* Foto de Fundo */}
+                  <div className="absolute inset-0 w-full h-full">
+                    <Image
+                      src={config.photoUrl}
+                      alt="Preview"
+                      fill
+                      className="object-cover object-top"
+                    />
+
+                    {config.overlayStyle === "heavy" ? (
+                      <>
+                        <div className="absolute inset-0 bg-black/45" />
+                        <div className="absolute inset-x-0 bottom-0 h-4/5 bg-gradient-to-t from-black via-black/90 to-transparent" />
+                      </>
+                    ) : config.overlayStyle === "clean" ? (
+                      <div className="absolute inset-x-0 bottom-0 h-2/5 bg-gradient-to-t from-black/85 to-transparent" />
+                    ) : (
+                      <>
+                        <div className="absolute inset-0 bg-gradient-to-t from-black via-black/35 to-black/30" />
+                        <div className="absolute inset-x-0 bottom-0 h-3/5 bg-gradient-to-t from-black via-black/85 to-transparent" />
+                      </>
+                    )}
+                  </div>
+
+                  {/* Topo Preview */}
+                  <div className="relative z-20 pt-8 px-4 flex flex-col gap-2">
+                    <div className="flex justify-between items-center">
+                      {config.showBadge && (
+                        <div className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-black/60 backdrop-blur-md border border-white/15 text-[11px] font-medium text-white shadow-lg">
+                          <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 shadow-[0_0_6px_#34d399]" />
+                          <span>{config.badgeText}</span>
+                        </div>
+                      )}
+
+                      {config.showUrgencyBadge && config.urgencyBadge && (
+                        <div className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-black/70 backdrop-blur-md border border-amber-500/40 text-[10px] font-bold text-amber-300 shadow">
+                          <span>{config.urgencyBadge}</span>
+                        </div>
+                      )}
+                    </div>
+
+                    {config.showHookHeadline && config.hookHeadline && (
+                      <div className="bg-black/65 backdrop-blur-md border border-white/20 px-3 py-2 rounded-xl shadow-lg text-center">
+                        <p className="text-[11px] font-extrabold text-white leading-tight">
+                          {config.hookHeadline}
+                        </p>
+                      </div>
+                    )}
+                  </div>
+
+                  {/* Botão Preview */}
+                  <div className="relative z-20 px-4 pb-8 flex flex-col items-center gap-2">
+                    <button
+                      type="button"
+                      style={{
+                        backgroundColor: config.buttonBgColor,
+                        color: config.buttonTextColor,
+                      }}
+                      className={`relative w-full py-3.5 px-4 rounded-xl font-bold text-sm tracking-wide flex items-center justify-center gap-2 border border-white/20 shadow-xl ${
+                        config.buttonGlow ? "animate-cta-pulse" : ""
+                      }`}
+                    >
+                      {config.ctaIcon === "fire" ? (
+                        <Flame className="w-4 h-4 fill-amber-300" />
+                      ) : config.ctaIcon === "lock" ? (
+                        <Lock className="w-4 h-4" />
+                      ) : config.ctaIcon === "heart" ? (
+                        <Heart className="w-4 h-4 fill-rose-300" />
+                      ) : (
+                        <Send className="w-4 h-4 fill-current" />
+                      )}
+                      <span className="truncate">{config.buttonText}</span>
+                      <ExternalLink className="w-3.5 h-3.5 ml-auto opacity-75" />
+                    </button>
+
+                    {config.showFooterDisclaimer && (
+                      <span className="text-[10px] text-zinc-400 font-medium">
+                        🛡️ {config.footerDisclaimer || "Acesso direto e verificado"}
+                      </span>
+                    )}
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* ================= ABA 3: FEED DE VISITANTES & CLICKS ================= */}
         {activeTab === "feed" && (
           <div className="bg-zinc-900 border border-zinc-800 rounded-3xl p-6 space-y-4">
             <div className="flex flex-wrap items-center justify-between gap-4">
@@ -901,7 +1514,6 @@ export default function AdminPage() {
                 </p>
               </div>
 
-              {/* Filtros rápidos */}
               <div className="flex flex-wrap items-center gap-2">
                 <div className="flex gap-1 bg-zinc-950 p-1 rounded-xl border border-zinc-800 text-xs">
                   <button
@@ -934,7 +1546,7 @@ export default function AdminPage() {
                   <Search className="absolute left-3 top-2.5 w-3.5 h-3.5 text-zinc-500" />
                   <input
                     type="text"
-                    placeholder="Buscar IP, cidade, UTM..."
+                    placeholder="Buscar IP, cidade, UF, UTM..."
                     value={searchLog}
                     onChange={(e) => setSearchLog(e.target.value)}
                     className="pl-8 pr-3 py-1.5 bg-zinc-950 border border-zinc-800 rounded-xl text-xs text-white placeholder-zinc-500 focus:outline-none focus:ring-1 focus:ring-blue-500 w-48 sm:w-64"
@@ -953,7 +1565,7 @@ export default function AdminPage() {
                     <th className="py-3 px-4 font-semibold">Campanha / Criativo</th>
                     <th className="py-3 px-4 font-semibold">Dispositivo & SO</th>
                     <th className="py-3 px-4 font-semibold">Navegador</th>
-                    <th className="py-3 px-4 font-semibold">Localização</th>
+                    <th className="py-3 px-4 font-semibold">Estado & Cidade</th>
                     <th className="py-3 px-4 font-semibold">IP</th>
                   </tr>
                 </thead>
@@ -999,7 +1611,7 @@ export default function AdminPage() {
                           )}
                         </td>
                         <td className="py-3 px-4 font-sans text-zinc-300 whitespace-nowrap">
-                          📍 {visit.city || "Desconhecido"} {visit.region ? `(${visit.region})` : ""}
+                          📍 <b className="text-white">{visit.region || "BR"}</b> • {visit.city || "Desconhecido"}
                         </td>
                         <td className="py-3 px-4 text-zinc-500 text-[11px] font-mono">
                           {visit.ip}
@@ -1019,7 +1631,7 @@ export default function AdminPage() {
           </div>
         )}
 
-        {/* ================= ABA 3: GERADOR DE LINKS UTM ================= */}
+        {/* ================= ABA 4: GERADOR DE LINKS UTM ================= */}
         {activeTab === "generator" && (
           <div className="max-w-3xl mx-auto bg-zinc-900 border border-zinc-800 rounded-3xl p-6 space-y-6">
             <div>
@@ -1092,7 +1704,6 @@ export default function AdminPage() {
                 </div>
               </div>
 
-              {/* Link Gerado */}
               <div className="pt-4 border-t border-zinc-800">
                 <label className="block text-xs font-bold uppercase tracking-wider text-emerald-400 mb-2">
                   Seu Link Rastreável Pronto:
@@ -1106,311 +1717,12 @@ export default function AdminPage() {
                   />
                   <button
                     type="button"
-                    onClick={() => copyToClipboard(generatedUrl, "Link rastreável")}
+                    onClick={() => copyToClipboard(generatedUrl, "Link")}
                     className="flex items-center gap-2 px-4 py-3 bg-emerald-600 hover:bg-emerald-500 text-white rounded-xl text-xs font-bold transition-all shadow-md shadow-emerald-600/30 cursor-pointer active:scale-[0.98]"
                   >
                     <Copy className="w-4 h-4" />
-                    <span>Copiar Link</span>
+                    <span>Copiar</span>
                   </button>
-                </div>
-                <p className="text-[11px] text-zinc-500 mt-2">
-                  Cole este link nos seus anúncios. Toda vez que um usuário clicar, o painel saberá a fonte exata e o Telegram também receberá esses dados.
-                </p>
-              </div>
-            </div>
-          </div>
-        )}
-
-        {/* ================= ABA 4: PERSONALIZAR PÁGINA & VISUAL ================= */}
-        {activeTab === "editor" && config && (
-          <div className="grid grid-cols-1 lg:grid-cols-12 gap-8 items-start">
-            {/* Formulário de Edição */}
-            <div className="lg:col-span-7 bg-zinc-900 border border-zinc-800 rounded-3xl p-6 space-y-6 shadow-sm">
-              <div className="flex items-center justify-between pb-4 border-b border-zinc-800">
-                <div>
-                  <h2 className="text-lg font-bold text-white">Editor Visual da Página</h2>
-                  <p className="text-xs text-zinc-400">Modifique links, fotos, cores e textos instantaneamente</p>
-                </div>
-
-                <button
-                  onClick={handleSaveConfig}
-                  disabled={saving}
-                  className="flex items-center gap-2 px-5 py-2.5 bg-blue-600 hover:bg-blue-500 text-white rounded-xl text-xs font-bold shadow-lg shadow-blue-600/30 transition-all active:scale-[0.98] cursor-pointer"
-                >
-                  <Save className="w-4 h-4" />
-                  <span>{saving ? "Salvando..." : "Salvar Alterações"}</span>
-                </button>
-              </div>
-
-              {/* 1. Link de Destino Telegram */}
-              <div className="space-y-2">
-                <label className="block text-xs font-bold uppercase tracking-wider text-zinc-300">
-                  Link de Destino do Telegram
-                </label>
-                <div className="flex gap-2">
-                  <div className="relative flex-1">
-                    <Send className="absolute left-3.5 top-3.5 w-4 h-4 text-blue-400" />
-                    <input
-                      type="url"
-                      value={config.telegramUrl}
-                      onChange={(e) => setConfig({ ...config, telegramUrl: e.target.value })}
-                      placeholder="https://t.me/seubot"
-                      className="w-full pl-10 pr-4 py-2.5 bg-zinc-950 border border-zinc-800 rounded-xl text-sm text-white focus:outline-none focus:ring-2 focus:ring-blue-500 font-mono"
-                    />
-                  </div>
-                  <a
-                    href={config.telegramUrl}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="px-4 py-2.5 rounded-xl bg-zinc-800 hover:bg-zinc-700 text-xs font-semibold text-zinc-300 border border-zinc-700 flex items-center gap-1.5 transition-colors"
-                  >
-                    <span>Testar</span>
-                    <ExternalLink className="w-3.5 h-3.5" />
-                  </a>
-                </div>
-
-                <label className="flex items-center gap-2.5 pt-1 cursor-pointer">
-                  <input
-                    type="checkbox"
-                    checked={config.forwardUtms}
-                    onChange={(e) => setConfig({ ...config, forwardUtms: e.target.checked })}
-                    className="w-4 h-4 rounded text-blue-600 bg-zinc-950 border-zinc-700"
-                  />
-                  <span className="text-xs text-zinc-300">
-                    Repassar parâmetros UTMs automaticamente ao Telegram (essencial para tracking do bot)
-                  </span>
-                </label>
-              </div>
-
-              {/* 2. Foto da Modelo */}
-              <div className="space-y-3 pt-3 border-t border-zinc-800">
-                <label className="block text-xs font-bold uppercase tracking-wider text-zinc-300">
-                  Foto da Modelo de IA
-                </label>
-
-                <div className="flex items-center gap-4">
-                  <div className="relative w-16 h-20 rounded-2xl overflow-hidden border border-zinc-700 bg-zinc-950 shrink-0 shadow-lg">
-                    <Image
-                      src={config.photoUrl}
-                      alt="Modelo Preview"
-                      fill
-                      className="object-cover"
-                    />
-                  </div>
-
-                  <div className="flex-1 space-y-2">
-                    <label className="inline-flex items-center gap-2 px-4 py-2.5 rounded-xl bg-zinc-800 hover:bg-zinc-700 text-xs font-bold text-white border border-zinc-700 cursor-pointer transition-colors shadow-sm">
-                      <Upload className="w-4 h-4 text-blue-400" />
-                      <span>{uploading ? "Enviando para o Supabase..." : "Fazer Upload de Nova Foto"}</span>
-                      <input
-                        type="file"
-                        accept="image/*"
-                        onChange={handleFileUpload}
-                        disabled={uploading}
-                        className="hidden"
-                      />
-                    </label>
-
-                    <div className="flex items-center gap-2">
-                      <span className="text-[11px] text-zinc-500">ou URL direta:</span>
-                      <input
-                        type="text"
-                        value={config.photoUrl}
-                        onChange={(e) => setConfig({ ...config, photoUrl: e.target.value })}
-                        placeholder="/uploads/foto.jpg ou https://..."
-                        className="flex-1 px-3 py-1.5 bg-zinc-950 border border-zinc-800 rounded-lg text-xs text-zinc-300 focus:outline-none focus:ring-1 focus:ring-blue-500 font-mono"
-                      />
-                    </div>
-                  </div>
-                </div>
-              </div>
-
-              {/* 3. Textos da Página */}
-              <div className="space-y-4 pt-3 border-t border-zinc-800">
-                <label className="block text-xs font-bold uppercase tracking-wider text-zinc-300">
-                  Textos da Página & Botão
-                </label>
-
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                  <div>
-                    <label className="block text-xs text-zinc-400 mb-1">Texto Principal do Botão</label>
-                    <input
-                      type="text"
-                      value={config.buttonText}
-                      onChange={(e) => setConfig({ ...config, buttonText: e.target.value })}
-                      placeholder="Acessar agora"
-                      className="w-full px-4 py-2.5 bg-zinc-950 border border-zinc-800 rounded-xl text-sm text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
-                    />
-                  </div>
-
-                  <div>
-                    <label className="block text-xs text-zinc-400 mb-1">Badge Superior</label>
-                    <input
-                      type="text"
-                      value={config.badgeText}
-                      onChange={(e) => setConfig({ ...config, badgeText: e.target.value })}
-                      placeholder="Online agora • VIP"
-                      className="w-full px-4 py-2.5 bg-zinc-950 border border-zinc-800 rounded-xl text-sm text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
-                    />
-                  </div>
-                </div>
-
-                <div className="flex flex-wrap items-center gap-4">
-                  <label className="flex items-center gap-2 cursor-pointer">
-                    <input
-                      type="checkbox"
-                      checked={config.showBadge}
-                      onChange={(e) => setConfig({ ...config, showBadge: e.target.checked })}
-                      className="w-4 h-4 rounded text-blue-600 bg-zinc-950 border-zinc-700"
-                    />
-                    <span className="text-xs text-zinc-300">Exibir Badge Superior ("Online agora")</span>
-                  </label>
-                </div>
-              </div>
-
-              {/* 4. Cores e Efeitos */}
-              <div className="space-y-4 pt-3 border-t border-zinc-800">
-                <label className="block text-xs font-bold uppercase tracking-wider text-zinc-300">
-                  Estilo & Cores do Botão
-                </label>
-
-                {/* Presets rápidos */}
-                <div>
-                  <span className="block text-xs text-zinc-400 mb-2">Paletas de Alta Conversão:</span>
-                  <div className="flex flex-wrap gap-2">
-                    {colorPresets.map((preset, idx) => (
-                      <button
-                        key={idx}
-                        type="button"
-                        onClick={() =>
-                          setConfig({
-                            ...config,
-                            buttonBgColor: preset.bg,
-                            buttonTextColor: preset.text,
-                          })
-                        }
-                        className={`px-3.5 py-2 rounded-xl text-xs font-bold border flex items-center gap-2 transition-all cursor-pointer ${
-                          config.buttonBgColor === preset.bg
-                            ? "border-white ring-2 ring-blue-500 scale-105"
-                            : "border-zinc-700 hover:border-zinc-500"
-                        }`}
-                        style={{ backgroundColor: preset.bg, color: preset.text }}
-                      >
-                        <span className="drop-shadow-sm">{preset.name}</span>
-                      </button>
-                    ))}
-                  </div>
-                </div>
-
-                {/* Seletor Customizado Hexadecimal */}
-                <div className="grid grid-cols-2 gap-4">
-                  <div>
-                    <label className="block text-xs text-zinc-400 mb-1">Cor do Fundo do Botão</label>
-                    <div className="flex items-center gap-2">
-                      <input
-                        type="color"
-                        value={config.buttonBgColor}
-                        onChange={(e) => setConfig({ ...config, buttonBgColor: e.target.value })}
-                        className="w-10 h-10 rounded-xl border border-zinc-700 cursor-pointer bg-transparent p-0"
-                      />
-                      <input
-                        type="text"
-                        value={config.buttonBgColor}
-                        onChange={(e) => setConfig({ ...config, buttonBgColor: e.target.value })}
-                        className="flex-1 px-3 py-2 bg-zinc-950 border border-zinc-800 rounded-xl text-xs font-mono text-white"
-                      />
-                    </div>
-                  </div>
-
-                  <div>
-                    <label className="block text-xs text-zinc-400 mb-1">Cor do Texto do Botão</label>
-                    <div className="flex items-center gap-2">
-                      <input
-                        type="color"
-                        value={config.buttonTextColor}
-                        onChange={(e) => setConfig({ ...config, buttonTextColor: e.target.value })}
-                        className="w-10 h-10 rounded-xl border border-zinc-700 cursor-pointer bg-transparent p-0"
-                      />
-                      <input
-                        type="text"
-                        value={config.buttonTextColor}
-                        onChange={(e) => setConfig({ ...config, buttonTextColor: e.target.value })}
-                        className="flex-1 px-3 py-2 bg-zinc-950 border border-zinc-800 rounded-xl text-xs font-mono text-white"
-                      />
-                    </div>
-                  </div>
-                </div>
-
-                {/* Efeito Glow / Pulso */}
-                <label className="flex items-center gap-2 cursor-pointer pt-1">
-                  <input
-                    type="checkbox"
-                    checked={config.buttonGlow}
-                    onChange={(e) => setConfig({ ...config, buttonGlow: e.target.checked })}
-                    className="w-4 h-4 rounded text-blue-600 bg-zinc-950 border-zinc-700"
-                  />
-                  <span className="text-xs text-zinc-300">
-                    Ativar animação contínua de pulso e brilho (Glow Effect para aumentar CTR)
-                  </span>
-                </label>
-              </div>
-            </div>
-
-            {/* Simulador Mobile em Tempo Real */}
-            <div className="lg:col-span-5 flex flex-col items-center">
-              <div className="sticky top-20 w-full max-w-[340px]">
-                <div className="flex items-center justify-between mb-3 px-2">
-                  <span className="text-xs font-bold text-zinc-400 uppercase tracking-wider flex items-center gap-1.5">
-                    <Smartphone className="w-4 h-4 text-blue-400" />
-                    Simulador ao Vivo
-                  </span>
-                  <span className="text-[11px] text-emerald-400 font-medium">● Atualização Instantânea</span>
-                </div>
-
-                {/* Moldura do Smartphone */}
-                <div className="relative w-full aspect-[9/18] max-h-[640px] rounded-[42px] border-[10px] border-zinc-800 bg-black overflow-hidden shadow-2xl ring-1 ring-white/10 flex flex-col justify-between">
-                  <div className="absolute top-2 left-1/2 -translate-x-1/2 w-24 h-5 bg-zinc-900 rounded-full z-30" />
-
-                  {/* Foto de Fundo */}
-                  <div className="absolute inset-0 w-full h-full">
-                    <Image
-                      src={config.photoUrl}
-                      alt="Preview"
-                      fill
-                      className="object-cover object-top"
-                    />
-                    <div className="absolute inset-0 bg-gradient-to-t from-black via-black/35 to-black/30" />
-                    <div className="absolute inset-x-0 bottom-0 h-2/3 bg-gradient-to-t from-black via-black/85 to-transparent" />
-                  </div>
-
-                  {/* Topo Preview */}
-                  <div className="relative z-20 pt-8 px-4 flex justify-between items-center">
-                    {config.showBadge && (
-                      <div className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-black/60 backdrop-blur-md border border-white/15 text-[11px] font-medium text-white shadow-lg">
-                        <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 shadow-[0_0_6px_#34d399]" />
-                        <span>{config.badgeText}</span>
-                      </div>
-                    )}
-                  </div>
-
-                  {/* Botão Preview */}
-                  <div className="relative z-20 px-4 pb-8 flex flex-col items-center gap-2">
-                    <button
-                      type="button"
-                      style={{
-                        backgroundColor: config.buttonBgColor,
-                        color: config.buttonTextColor,
-                      }}
-                      className={`relative w-full py-3.5 px-4 rounded-xl font-bold text-sm tracking-wide flex items-center justify-center gap-2 border border-white/20 shadow-xl ${
-                        config.buttonGlow ? "animate-cta-pulse" : ""
-                      }`}
-                    >
-                      <Send className="w-4 h-4 shrink-0 fill-current" />
-                      <span className="truncate">{config.buttonText}</span>
-                      <ExternalLink className="w-3.5 h-3.5 ml-auto opacity-75" />
-                    </button>
-                    <span className="text-[10px] text-zinc-400">🛡️ Acesso direto e verificado</span>
-                  </div>
                 </div>
               </div>
             </div>
@@ -1420,7 +1732,6 @@ export default function AdminPage() {
         {/* ================= ABA 5: PIXELS & SUPABASE ================= */}
         {activeTab === "settings" && config && (
           <div className="max-w-3xl mx-auto space-y-6">
-            {/* Status do Supabase */}
             <div className="bg-zinc-900 border border-zinc-800 rounded-3xl p-6 space-y-4">
               <div className="flex items-center justify-between">
                 <div>
@@ -1461,7 +1772,7 @@ export default function AdminPage() {
                 <div className="bg-zinc-950 p-4 rounded-2xl border border-zinc-800/80 text-xs space-y-2 text-zinc-400">
                   <p>
                     {supabaseStatus?.message ||
-                      "Para vincular o Supabase, defina as variáveis NEXT_PUBLIC_SUPABASE_URL e SUPABASE_SERVICE_ROLE_KEY na Vercel ou no .env.local."}
+                      "Para vincular o Supabase, defina as variáveis NEXT_PUBLIC_SUPABASE_URL e SUPABASE_SERVICE_ROLE_KEY na Vercel."}
                   </p>
                 </div>
               )}
@@ -1561,7 +1872,7 @@ export default function AdminPage() {
               </div>
             </div>
 
-            {/* Zona de Perigo */}
+            {/* Limpeza de Dados */}
             <div className="bg-red-950/20 border border-red-900/40 rounded-3xl p-6 space-y-3">
               <div>
                 <h3 className="text-sm font-bold text-red-400 flex items-center gap-2">

@@ -68,16 +68,25 @@ export async function getSupabaseConfig(): Promise<LandingConfig | null> {
       telegramUrl: data.telegram_url || DEFAULT_CONFIG.telegramUrl,
       forwardUtms: data.forward_utms ?? DEFAULT_CONFIG.forwardUtms,
       photoUrl: data.photo_url || DEFAULT_CONFIG.photoUrl,
+      savedPhotos: Array.isArray(data.saved_photos) ? data.saved_photos : [data.photo_url || DEFAULT_CONFIG.photoUrl],
       modelName: data.model_name || DEFAULT_CONFIG.modelName,
       badgeText: data.badge_text || DEFAULT_CONFIG.badgeText,
       showBadge: data.show_badge ?? DEFAULT_CONFIG.showBadge,
+      hookHeadline: data.hook_headline || DEFAULT_CONFIG.hookHeadline,
+      showHookHeadline: data.show_hook_headline ?? DEFAULT_CONFIG.showHookHeadline,
+      urgencyBadge: data.urgency_badge || DEFAULT_CONFIG.urgencyBadge,
+      showUrgencyBadge: data.show_urgency_badge ?? DEFAULT_CONFIG.showUrgencyBadge,
       buttonText: data.button_text || DEFAULT_CONFIG.buttonText,
       buttonSubtext: data.button_subtext || "",
       showButtonSubtext: data.show_button_subtext ?? false,
+      ctaIcon: data.cta_icon || DEFAULT_CONFIG.ctaIcon,
       themePreset: data.theme_preset || DEFAULT_CONFIG.themePreset,
       buttonBgColor: data.button_bg_color || DEFAULT_CONFIG.buttonBgColor,
       buttonTextColor: data.button_text_color || DEFAULT_CONFIG.buttonTextColor,
       buttonGlow: data.button_glow ?? DEFAULT_CONFIG.buttonGlow,
+      overlayStyle: data.overlay_style || DEFAULT_CONFIG.overlayStyle,
+      footerDisclaimer: data.footer_disclaimer || DEFAULT_CONFIG.footerDisclaimer,
+      showFooterDisclaimer: data.show_footer_disclaimer ?? DEFAULT_CONFIG.showFooterDisclaimer,
       showAdminShortcut: false, // Sempre desativado na LP pública
       adminPassword: data.admin_password || DEFAULT_CONFIG.adminPassword,
       facebookPixelId: data.facebook_pixel_id || "",
@@ -104,16 +113,25 @@ export async function saveSupabaseConfig(config: Partial<LandingConfig>): Promis
     if (config.telegramUrl !== undefined) payload.telegram_url = config.telegramUrl;
     if (config.forwardUtms !== undefined) payload.forward_utms = config.forwardUtms;
     if (config.photoUrl !== undefined) payload.photo_url = config.photoUrl;
+    if (config.savedPhotos !== undefined) payload.saved_photos = config.savedPhotos;
     if (config.modelName !== undefined) payload.model_name = config.modelName;
     if (config.badgeText !== undefined) payload.badge_text = config.badgeText;
     if (config.showBadge !== undefined) payload.show_badge = config.showBadge;
+    if (config.hookHeadline !== undefined) payload.hook_headline = config.hookHeadline;
+    if (config.showHookHeadline !== undefined) payload.show_hook_headline = config.showHookHeadline;
+    if (config.urgencyBadge !== undefined) payload.urgency_badge = config.urgencyBadge;
+    if (config.showUrgencyBadge !== undefined) payload.show_urgency_badge = config.showUrgencyBadge;
     if (config.buttonText !== undefined) payload.button_text = config.buttonText;
     if (config.buttonSubtext !== undefined) payload.button_subtext = config.buttonSubtext;
     if (config.showButtonSubtext !== undefined) payload.show_button_subtext = config.showButtonSubtext;
+    if (config.ctaIcon !== undefined) payload.cta_icon = config.ctaIcon;
     if (config.themePreset !== undefined) payload.theme_preset = config.themePreset;
     if (config.buttonBgColor !== undefined) payload.button_bg_color = config.buttonBgColor;
     if (config.buttonTextColor !== undefined) payload.button_text_color = config.buttonTextColor;
     if (config.buttonGlow !== undefined) payload.button_glow = config.buttonGlow;
+    if (config.overlayStyle !== undefined) payload.overlay_style = config.overlayStyle;
+    if (config.footerDisclaimer !== undefined) payload.footer_disclaimer = config.footerDisclaimer;
+    if (config.showFooterDisclaimer !== undefined) payload.show_footer_disclaimer = config.showFooterDisclaimer;
     if (config.adminPassword !== undefined) payload.admin_password = config.adminPassword;
     if (config.facebookPixelId !== undefined) payload.facebook_pixel_id = config.facebookPixelId;
     if (config.googleAnalyticsId !== undefined) payload.google_analytics_id = config.googleAnalyticsId;

@@ -6,22 +6,42 @@ CREATE TABLE IF NOT EXISTS public.lp_config (
   telegram_url text NOT NULL DEFAULT 'https://t.me/MarcinhaVip18_bot',
   forward_utms boolean NOT NULL DEFAULT true,
   photo_url text NOT NULL DEFAULT '/uploads/model-default.jpg',
+  saved_photos jsonb DEFAULT '["/uploads/model-default.jpg"]'::jsonb,
   model_name text NOT NULL DEFAULT 'Marcinha',
   badge_text text NOT NULL DEFAULT 'Online agora • VIP',
   show_badge boolean NOT NULL DEFAULT true,
+  hook_headline text DEFAULT 'Conteúdo exclusivo liberado no Telegram',
+  show_hook_headline boolean NOT NULL DEFAULT false,
+  urgency_badge text DEFAULT '🔥 142 pessoas online agora',
+  show_urgency_badge boolean NOT NULL DEFAULT false,
   button_text text NOT NULL DEFAULT 'Acessar agora',
   button_subtext text DEFAULT '',
   show_button_subtext boolean NOT NULL DEFAULT false,
+  cta_icon text NOT NULL DEFAULT 'telegram',
   theme_preset text NOT NULL DEFAULT 'telegram-blue',
   button_bg_color text NOT NULL DEFAULT '#229ED9',
   button_text_color text NOT NULL DEFAULT '#ffffff',
   button_glow boolean NOT NULL DEFAULT true,
+  overlay_style text NOT NULL DEFAULT 'cinematic',
+  footer_disclaimer text DEFAULT 'Acesso 100% seguro e anônimo • +18',
+  show_footer_disclaimer boolean NOT NULL DEFAULT true,
   admin_password text NOT NULL DEFAULT 'marcinha2026',
   facebook_pixel_id text DEFAULT '',
   google_analytics_id text DEFAULT '',
   tiktok_pixel_id text DEFAULT '',
   updated_at timestamptz NOT NULL DEFAULT now()
 );
+
+-- Adiciona novas colunas caso a tabela já tenha sido criada anteriormente
+ALTER TABLE public.lp_config ADD COLUMN IF NOT EXISTS saved_photos jsonb DEFAULT '["/uploads/model-default.jpg"]'::jsonb;
+ALTER TABLE public.lp_config ADD COLUMN IF NOT EXISTS hook_headline text DEFAULT 'Conteúdo exclusivo liberado no Telegram';
+ALTER TABLE public.lp_config ADD COLUMN IF NOT EXISTS show_hook_headline boolean DEFAULT false;
+ALTER TABLE public.lp_config ADD COLUMN IF NOT EXISTS urgency_badge text DEFAULT '🔥 142 pessoas online agora';
+ALTER TABLE public.lp_config ADD COLUMN IF NOT EXISTS show_urgency_badge boolean DEFAULT false;
+ALTER TABLE public.lp_config ADD COLUMN IF NOT EXISTS cta_icon text DEFAULT 'telegram';
+ALTER TABLE public.lp_config ADD COLUMN IF NOT EXISTS overlay_style text DEFAULT 'cinematic';
+ALTER TABLE public.lp_config ADD COLUMN IF NOT EXISTS footer_disclaimer text DEFAULT 'Acesso 100% seguro e anônimo • +18';
+ALTER TABLE public.lp_config ADD COLUMN IF NOT EXISTS show_footer_disclaimer boolean DEFAULT true;
 
 -- Insere linha inicial de configuração se não existir
 INSERT INTO public.lp_config (id, telegram_url, photo_url, model_name, badge_text, button_text, button_bg_color, admin_password)
@@ -71,6 +91,7 @@ CREATE INDEX IF NOT EXISTS idx_lp_visits_utm_source ON public.lp_visits (utm_sou
 CREATE INDEX IF NOT EXISTS idx_lp_visits_utm_campaign ON public.lp_visits (utm_campaign);
 CREATE INDEX IF NOT EXISTS idx_lp_visits_clicked ON public.lp_visits (clicked);
 CREATE INDEX IF NOT EXISTS idx_lp_visits_device ON public.lp_visits (device);
+CREATE INDEX IF NOT EXISTS idx_lp_visits_region ON public.lp_visits (region);
 
 -- ================================================================
 -- PERMISSÕES TOTALMENTE LIBERADAS (RLS TOTAL PARA CLIENTE E ADMIN)
@@ -78,15 +99,9 @@ CREATE INDEX IF NOT EXISTS idx_lp_visits_device ON public.lp_visits (device);
 ALTER TABLE public.lp_config ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.lp_visits ENABLE ROW LEVEL SECURITY;
 
--- Limpa policies antigas se existirem
-DROP POLICY IF EXISTS "Leitura pública de lp_config" ON public.lp_config;
 DROP POLICY IF EXISTS "Acesso total lp_config" ON public.lp_config;
-DROP POLICY IF EXISTS "Inserção pública de visitas" ON public.lp_visits;
-DROP POLICY IF EXISTS "Atualização pública de clique" ON public.lp_visits;
-DROP POLICY IF EXISTS "Acesso total service role em visitas" ON public.lp_visits;
 DROP POLICY IF EXISTS "Acesso total lp_visits" ON public.lp_visits;
 
--- Policies universais (Permite SELECT, INSERT, UPDATE, DELETE 100% livres)
 CREATE POLICY "Acesso total lp_config"
   ON public.lp_config FOR ALL
   USING (true)
@@ -104,8 +119,6 @@ INSERT INTO storage.buckets (id, name, public)
 VALUES ('marcinha-media', 'marcinha-media', true)
 ON CONFLICT (id) DO UPDATE SET public = true;
 
-DROP POLICY IF EXISTS "Objetos públicos em marcinha-media" ON storage.objects;
-DROP POLICY IF EXISTS "Upload permitido em marcinha-media" ON storage.objects;
 DROP POLICY IF EXISTS "Acesso total marcinha-media" ON storage.objects;
 
 CREATE POLICY "Acesso total marcinha-media"

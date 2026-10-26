@@ -20,16 +20,25 @@ export const DEFAULT_CONFIG: LandingConfig = {
   telegramUrl: "https://t.me/MarcinhaVip18_bot",
   forwardUtms: true,
   photoUrl: "/uploads/model-default.jpg",
+  savedPhotos: ["/uploads/model-default.jpg"],
   modelName: "Marcinha",
   badgeText: "Online agora • VIP",
   showBadge: true,
+  hookHeadline: "Conteúdo exclusivo liberado no Telegram",
+  showHookHeadline: false,
+  urgencyBadge: "🔥 142 pessoas online agora",
+  showUrgencyBadge: false,
   buttonText: "Acessar agora",
   buttonSubtext: "",
   showButtonSubtext: false,
+  ctaIcon: "telegram",
   themePreset: "telegram-blue",
   buttonBgColor: "#229ED9",
   buttonTextColor: "#ffffff",
   buttonGlow: true,
+  overlayStyle: "cinematic",
+  footerDisclaimer: "Acesso 100% seguro e anônimo • +18",
+  showFooterDisclaimer: true,
   showAdminShortcut: false, // Oculto na LP pública
   adminPassword: "marcinha2026",
   facebookPixelId: "",
@@ -145,9 +154,18 @@ export async function updateConfigAsync(partial: Partial<LandingConfig>): Promis
 
 export function updateConfig(partial: Partial<LandingConfig>): LandingConfig {
   const db = getDatabase();
+  const currentSaved = Array.isArray(db.config.savedPhotos) ? db.config.savedPhotos : ["/uploads/model-default.jpg"];
+  let newSaved = [...currentSaved];
+
+  if (partial.photoUrl && !newSaved.includes(partial.photoUrl)) {
+    newSaved.unshift(partial.photoUrl);
+    if (newSaved.length > 20) newSaved = newSaved.slice(0, 20); // Mantém até 20 fotos salvas
+  }
+
   db.config = {
     ...db.config,
     ...partial,
+    savedPhotos: partial.savedPhotos || newSaved,
     updatedAt: new Date().toISOString(),
   };
   saveDatabase(db);

@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getVisitsAsync } from "@/lib/db";
 import { checkAdminAuth } from "@/lib/auth";
+import { BRAZIL_STATES } from "@/lib/geo";
 
 export const dynamic = "force-dynamic";
 
@@ -13,7 +14,7 @@ export async function GET(req: NextRequest) {
 
   // Parâmetros de filtro
   const url = new URL(req.url);
-  const period = url.searchParams.get("period") || "all"; // 'today', '7d', '30d', 'all'
+  const period = url.searchParams.get("period") || "all";
   const filterSource = url.searchParams.get("source") || "";
 
   const now = new Date();
@@ -85,7 +86,7 @@ export async function GET(req: NextRequest) {
     }))
     .sort((a, b) => b.visits - a.visits);
 
-  // Agrupamento por Dispositivo (Mobile vs Desktop vs Tablet)
+  // Agrupamento por Dispositivo
   const deviceMap: Record<string, number> = {};
   filteredVisits.forEach((v) => {
     const dev = v.device || "Mobile";
@@ -99,7 +100,7 @@ export async function GET(req: NextRequest) {
     osMap[os] = (osMap[os] || 0) + 1;
   });
 
-  // Agrupamento por Navegador (incluindo In-App Browsers como Instagram e TikTok)
+  // Agrupamento por Navegador (Instagram, TikTok, etc.)
   const browserMap: Record<string, number> = {};
   filteredVisits.forEach((v) => {
     const b = v.browser || "Outro";
@@ -118,7 +119,32 @@ export async function GET(req: NextRequest) {
     .sort((a, b) => b.count - a.count)
     .slice(0, 10);
 
-  // Distribuição por Hora (para ver horários de pico de tráfego)
+  // Agrupamento por Estado do Brasil (UF) para o Mapa
+  const brazilStateMap: Record<string, { visits: number; clicks: number }> = {};
+  filteredVisits.forEach((v) => {
+    const uf = v.region ? v.region.trim().toUpperCase() : "SP";
+    if (BRAZIL_STATES[uf] || uf.length === 2) {
+      if (!brazilStateMap[uf]) {
+        brazilStateMap[uf] = { visits: 0, clicks: 0 };
+      }
+      brazilStateMap[uf].visits += 1;
+      if (v.clicked) {
+        brazilStateMap[uf].clicks += 1;
+      }
+    }
+  });
+
+  const brazilStates = Object.entries(brazilStateMap)
+    .map(([uf, stats]) => ({
+      uf,
+      name: BRAZIL_STATES[uf] || uf,
+      visits: stats.visits,
+      clicks: stats.clicks,
+      cr: stats.visits > 0 ? Number(((stats.clicks / stats.visits) * 100).toFixed(1)) : 0,
+    }))
+    .sort((a, b) => b.visits - a.visits);
+
+  // Distribuição por Hora
   const hourlyVisits: number[] = new Array(24).fill(0);
   const hourlyClicks: number[] = new Array(24).fill(0);
   filteredVisits.forEach((v) => {
@@ -127,27 +153,32 @@ export async function GET(req: NextRequest) {
     if (v.clicked) hourlyClicks[hour] += 1;
   });
 
-  return NextResponse.json({
-    period,
-    totalVisits,
-    uniqueVisits,
-    totalClicks,
-    conversionRate: Number(conversionRate),
-    topSources,
-    topCampaigns,
-    devices: deviceMap,
-    os: osMap,
-    browsers: browserMap,
-    topLocations,
-    hourly: {
-      labels: Array.from({ length: 24 }, (_, i) => `${i}h`),
-      visits: hourlyVisits,
-      clicks: hourlyClicks,
+  return NextResponse.json(
+    {
+      period,
+      totalVisits,
+      uniqueVisits,
+      totalClicks,
+      conversionRate: Number(conversionRate),
+      topSources,
+      topCampaigns,
+      devices: deviceMap,
+      os: osMap,
+      browsers: browserMap,
+      topLocations,
+      brazilStateMap,
+      brazilStates,
+      hourly: {
+        labels: Array.from({ length: 24 }, (_, i) => `${i}h`),
+        visits: hourlyVisits,
+        clicks: hourlyClicks,
+      },
+      recentVisits: filteredVisits.slice(0, 150),
     },
-    recentVisits: filteredVisits.slice(0, 100),
-  }, {
-    headers: {
-      "Cache-Control": "no-store, no-cache, must-revalidate, max-age=0",
-    },
-  });
+    {
+      headers: {
+        "Cache-Control": "no-store, no-cache, must-revalidate, max-age=0",
+      },
+    }
+  );
 }
