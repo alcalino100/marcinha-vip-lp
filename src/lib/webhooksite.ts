@@ -62,11 +62,11 @@ export function parseFirebotItem(contentRaw: string | Record<string, any>, fallb
       status = "expired";
     }
 
-    // ID do pedido / transação
+    // ID do pedido / transação (prioriza transactionId/saleId para unificar venda.pendente e venda.paga)
     const id = String(
-      data.id ||
       data.transactionId ||
       data.saleId ||
+      data.id ||
       fallbackUuid ||
       `fb_${Date.now()}`
     );

@@ -6,22 +6,29 @@ import { syncWebhookSiteOrders } from "@/lib/webhooksite";
 
 export const dynamic = "force-dynamic";
 
+let lastAutoSyncTimestamp = 0;
+
 export async function GET(req: NextRequest) {
   if (!(await checkAdminAuth(req))) {
     return NextResponse.json({ error: "Não autorizado" }, { status: 401 });
   }
 
-  let orders = await getOrdersAsync();
+  const nowMs = Date.now();
+  const url = new URL(req.url);
+  const forceSync = url.searchParams.get("sync") === "true";
 
-  // Se não houver pedidos no banco, sincroniza automaticamente do Webhook.site
-  if (orders.length === 0) {
+  // Opção A: Sincronização contínua com Webhook.site (a cada 10s ou se forçado)
+  if (forceSync || nowMs - lastAutoSyncTimestamp > 10000) {
     try {
       await syncWebhookSiteOrders();
-      orders = await getOrdersAsync();
-    } catch {}
+      lastAutoSyncTimestamp = nowMs;
+    } catch (e) {
+      console.error("Falha ao sincronizar com Webhook.site:", e);
+    }
   }
 
-  const url = new URL(req.url);
+  const orders = await getOrdersAsync();
+
   const period = url.searchParams.get("period") || "all";
   const filterSource = url.searchParams.get("source") || "";
   const filterStatus = url.searchParams.get("status") || "";
